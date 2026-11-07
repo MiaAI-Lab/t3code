@@ -8,11 +8,17 @@ import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretReso
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
+import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import {
   FetchHttpClient,
+  HttpClient,
+  HttpClientError,
+  HttpClientResponse,
   HttpRouter,
   HttpServer,
   HttpServerRequest,
@@ -302,17 +308,28 @@ it.live("records a client disconnect mid-stream and frees the slot", () =>
   }),
 );
 
-it.live("attributes a request to the thread's active run and its scheduled origin", () =>
+it.live("attributes a request to its active run, its delegating run and its scheduled origin", () =>
   Effect.gen(function* () {
     const runId = RunId.make("run-1");
     const userMessageId = MessageId.make("message-1");
     const { call, records } = yield* makeHarness(
       Layer.mock(ThreadManagementService.ThreadManagementService)({
-        getThreadShell: () => Effect.succeed({ activeRunId: runId } as never),
+        getThreadShell: () =>
+          Effect.succeed({
+            activeRunId: runId,
+            lineage: { relationshipToParent: "subagent" },
+          } as never),
         getThreadRecords: () =>
           Effect.succeed({
             runs: [{ id: runId, userMessageId }],
             messages: [{ id: userMessageId, scheduledTaskId: ScheduledTaskId.make("task-1") }],
+            contextTransfers: [
+              {
+                type: "subagent_spawn",
+                targetThreadId: thread,
+                sourcePoint: { threadId: "parent", runId: "parent-run" },
+              },
+            ],
           } as never),
       }),
     );
@@ -321,6 +338,268 @@ it.live("attributes a request to the thread's active run and its scheduled origi
       post("thread-token", { model: "m", stream: true }),
     );
     yield* Effect.promise(() => response.text());
-    expect(yield* Queue.take(records)).toMatchObject({ purpose: "scheduled", runId });
+    expect(yield* Queue.take(records)).toMatchObject({
+      purpose: "scheduled",
+      runId,
+      parentRunId: "parent-run",
+    });
+  }),
+);
+
+interface Exchange {
+  readonly url: string;
+  readonly headers: Readonly<Record<string, string | undefined>>;
+  readonly body: unknown;
+  readonly aborted: Deferred.Deferred<void>;
+  readonly reply: Deferred.Deferred<Response, Error>;
+}
+
+/** A web response whose body the test writes to, chunk by chunk. */
+const controlledBody = (init: ResponseInit = {}) => {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const body = new ReadableStream<Uint8Array>({
+    start: (control) => {
+      controller = control;
+    },
+  });
+  return {
+    response: new Response(body, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+      ...init,
+    }),
+    push: (text: string) => Effect.sync(() => controller.enqueue(encoder.encode(text))),
+    end: Effect.sync(() => controller.close()),
+    fail: Effect.sync(() => controller.error(new Error("upstream reset"))),
+  };
+};
+
+const makeLifecycle = Effect.fnUntraced(function* () {
+  const exchanges = yield* Queue.unbounded<Exchange>();
+  const records = yield* Queue.unbounded<InferenceRequests.InferenceRequestRecord>();
+  const queued = yield* Queue.unbounded<InferenceServerId>();
+  const gate = yield* Deferred.make<void>();
+  let releases = 0;
+
+  const upstream = HttpClient.make((request, url, signal) =>
+    Effect.gen(function* () {
+      const aborted = yield* Deferred.make<void>();
+      if (signal.aborted) Deferred.doneUnsafe(aborted, Exit.void);
+      signal.addEventListener("abort", () => Deferred.doneUnsafe(aborted, Exit.void));
+      const reply = yield* Deferred.make<Response, Error>();
+      const body =
+        request.body._tag === "Uint8Array"
+          ? JSON.parse(new TextDecoder().decode(request.body.body))
+          : undefined;
+      yield* Queue.offer(exchanges, {
+        url: url.toString(),
+        headers: request.headers,
+        body,
+        aborted,
+        reply,
+      });
+      const response = yield* Deferred.await(reply).pipe(
+        Effect.mapError(
+          (cause) =>
+            new HttpClientError.HttpClientError({
+              reason: new HttpClientError.TransportError({ request, cause }),
+            }),
+        ),
+      );
+      return HttpClientResponse.fromWeb(request, response);
+    }),
+  );
+
+  const gateway = yield* Layer.build(
+    InferenceGateway.layer.pipe(
+      Layer.provide([
+        Layer.succeed(HttpClient.HttpClient, upstream),
+        ServerSettings.layerTest({
+          inferenceServers: {
+            [InferenceServerId.make("rtx")]: {
+              baseUrl: "http://rtx.test/v1",
+              apiKey: "rtx-key",
+              enabled: true,
+            },
+          },
+        }),
+        NodeCrypto.layer,
+        Layer.succeed(InferenceRequests.InferenceRequestLog, {
+          record: (record) => Queue.offer(records, record).pipe(Effect.asVoid),
+          summarize: () => Effect.die("unused"),
+          latestForThread: () => Effect.die("unused"),
+        }),
+        Layer.succeed(InferenceAdmission.InferenceAdmission, {
+          // Mirrors the real queue: enqueueing is the acquire, waiting for a slot is interruptible.
+          admit: (ticket) =>
+            Effect.acquireRelease(Queue.offer(queued, ticket.serverId), () =>
+              Effect.sync(() => {
+                releases += 1;
+              }),
+            ).pipe(Effect.andThen(Deferred.await(gate))),
+        }),
+        Layer.mock(McpSessionRegistry.McpSessionRegistry)({
+          resolveInference: () =>
+            Effect.succeed({ serverId: InferenceServerId.make("rtx"), threadId: thread }),
+        }),
+        Layer.mock(SecretResolver.SecretResolver)({}),
+      ]),
+    ),
+  ).pipe(Effect.map((context) => Context.get(context, InferenceGateway.InferenceGateway)));
+
+  /** Starts a request the way the HTTP server does: in a request scope the test closes. */
+  const start = Effect.fnUntraced(function* (body: unknown = { model: "m", stream: true }) {
+    const requestScope = yield* Scope.make();
+    const handler = yield* gateway
+      .handle(
+        HttpServerRequest.fromWeb(
+          new Request("http://gateway.test/inference/rtx/v1/chat/completions", {
+            method: "POST",
+            headers: { authorization: "Bearer thread-token", "content-type": "application/json" },
+            body: JSON.stringify(body),
+          }),
+        ),
+      )
+      .pipe(Scope.provide(requestScope), Effect.forkChild({ startImmediately: true }));
+    /** The client went away: the server interrupts the handler and closes the request scope. */
+    const disconnect = Fiber.interrupt(handler).pipe(
+      Effect.andThen(Scope.close(requestScope, Exit.void)),
+    );
+    return { handler, requestScope, disconnect };
+  });
+
+  /** Exactly one terminal record and one admission release once everything has settled. */
+  const settledOnce = Effect.fnUntraced(function* () {
+    const record = yield* Queue.take(records);
+    expect(yield* Queue.size(records)).toBe(0);
+    expect(releases).toBe(1);
+    return record;
+  });
+
+  return { start, exchanges, queued, gate, settledOnce };
+});
+
+const bodyText = (response: HttpServerResponse.HttpServerResponse) =>
+  (response.body._tag === "Stream" ? response.body.stream : Stream.empty).pipe(Stream.orDie);
+
+it.effect("a client leaving while queued settles once and never dispatches", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, queued, settledOnce } = yield* makeLifecycle();
+    const { disconnect } = yield* start();
+    yield* Queue.take(queued);
+    yield* disconnect;
+    expect((yield* settledOnce()).status).toBe("cancelled");
+    expect(yield* Queue.size(exchanges)).toBe(0);
+  }),
+);
+
+it.effect("a client leaving while upstream headers are pending aborts the upstream", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, gate, settledOnce } = yield* makeLifecycle();
+    yield* Deferred.succeed(gate, undefined);
+    const { disconnect } = yield* start();
+    const exchange = yield* Queue.take(exchanges);
+    yield* disconnect;
+    yield* Deferred.await(exchange.aborted);
+    expect((yield* settledOnce()).status).toBe("cancelled");
+  }),
+);
+
+it.effect("a client gone before the body is subscribed releases the lease and aborts", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, gate, settledOnce } = yield* makeLifecycle();
+    yield* Deferred.succeed(gate, undefined);
+    const { handler, requestScope } = yield* start();
+    const exchange = yield* Queue.take(exchanges);
+    yield* Deferred.succeed(exchange.reply, controlledBody().response);
+    expect((yield* Fiber.join(handler)).status).toBe(200);
+    // A destroyed response is never written: the server closes the scope without reading the body.
+    yield* Scope.close(requestScope, Exit.void);
+    yield* Deferred.await(exchange.aborted);
+    expect((yield* settledOnce()).status).toBe("cancelled");
+  }),
+);
+
+it.effect("a client leaving mid-stream aborts the upstream and settles once", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, gate, settledOnce } = yield* makeLifecycle();
+    yield* Deferred.succeed(gate, undefined);
+    const { handler, requestScope } = yield* start();
+    const exchange = yield* Queue.take(exchanges);
+    const upstream = controlledBody();
+    yield* Deferred.succeed(exchange.reply, upstream.response);
+    const response = yield* Fiber.join(handler);
+    const received = yield* Queue.unbounded<Uint8Array>();
+    const writer = yield* Stream.runForEach(bodyText(response), (chunk) =>
+      Queue.offer(received, chunk),
+    ).pipe(Effect.forkChild({ startImmediately: true }));
+    yield* upstream.push(`data: ${JSON.stringify({ choices: [{ delta: { content: "a" } }] })}\n\n`);
+    yield* Queue.take(received);
+    yield* Fiber.interrupt(writer);
+    yield* Scope.close(requestScope, Exit.void);
+    yield* Deferred.await(exchange.aborted);
+    const record = yield* settledOnce();
+    expect(record.status).toBe("cancelled");
+    expect(record.ttftMs).toBeTypeOf("number");
+  }),
+);
+
+it.effect("a client abort racing an upstream error records one terminal state", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, gate, settledOnce } = yield* makeLifecycle();
+    yield* Deferred.succeed(gate, undefined);
+    const { handler, requestScope } = yield* start();
+    const exchange = yield* Queue.take(exchanges);
+    const upstream = controlledBody();
+    yield* Deferred.succeed(exchange.reply, upstream.response);
+    const writer = yield* Stream.runDrain(bodyText(yield* Fiber.join(handler))).pipe(
+      Effect.forkChild({ startImmediately: true }),
+    );
+    yield* upstream.fail;
+    yield* Fiber.interrupt(writer);
+    yield* Scope.close(requestScope, Exit.void);
+    expect(["failed", "cancelled"]).toContain((yield* settledOnce()).status);
+  }),
+);
+
+it.effect("a client abort racing body completion records one terminal state", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, gate, settledOnce } = yield* makeLifecycle();
+    yield* Deferred.succeed(gate, undefined);
+    const { handler, requestScope } = yield* start();
+    const exchange = yield* Queue.take(exchanges);
+    const upstream = controlledBody();
+    yield* Deferred.succeed(exchange.reply, upstream.response);
+    const writer = yield* Stream.runDrain(bodyText(yield* Fiber.join(handler))).pipe(
+      Effect.forkChild({ startImmediately: true }),
+    );
+    yield* upstream.push(CHAT_STREAM);
+    yield* upstream.end;
+    yield* Fiber.interrupt(writer);
+    yield* Scope.close(requestScope, Exit.void);
+    expect(["completed", "cancelled"]).toContain((yield* settledOnce()).status);
+  }),
+);
+
+it.effect("a completed request settles once with its usage", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, gate, settledOnce } = yield* makeLifecycle();
+    yield* Deferred.succeed(gate, undefined);
+    const { handler, requestScope } = yield* start();
+    const exchange = yield* Queue.take(exchanges);
+    const upstream = controlledBody();
+    yield* Deferred.succeed(exchange.reply, upstream.response);
+    const writer = yield* Stream.runDrain(bodyText(yield* Fiber.join(handler))).pipe(
+      Effect.forkChild({ startImmediately: true }),
+    );
+    yield* upstream.push(CHAT_STREAM);
+    yield* upstream.end;
+    yield* Fiber.join(writer);
+    yield* Scope.close(requestScope, Exit.void);
+    expect(yield* settledOnce()).toMatchObject({
+      status: "completed",
+      promptTokens: 15,
+      cachedPromptTokens: 3,
+    });
   }),
 );

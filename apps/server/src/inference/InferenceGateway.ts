@@ -121,9 +121,10 @@ function prepareBody(protocol: InferenceApiProtocol, raw: Uint8Array) {
 export class InferenceGateway extends Context.Service<
   InferenceGateway,
   {
+    /** The scope is the request's: it closes once the response is written or abandoned. */
     readonly handle: (
       request: HttpServerRequest.HttpServerRequest,
-    ) => Effect.Effect<HttpServerResponse.HttpServerResponse>;
+    ) => Effect.Effect<HttpServerResponse.HttpServerResponse, never, Scope.Scope>;
   }
 >()("t3/inference/InferenceGateway") {}
 
@@ -142,20 +143,41 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  /** Server-side only: a run started by a scheduled task is scheduled, any other run interactive. */
+  /**
+   * Server-side only: a run started by a scheduled task is scheduled, any other run interactive.
+   * A delegated child thread also names the parent run that spawned it.
+   */
   const attribute = Effect.fn("InferenceGateway.attribute")(function* (
     caller: McpSessionRegistry.InferenceCaller,
   ) {
+    const unattributed = { runId: null, parentRunId: null };
     if (caller.threadId === undefined) {
-      return { purpose: "background" as InferenceRequestPurpose, runId: null };
+      return { purpose: "background" as InferenceRequestPurpose, ...unattributed };
     }
-    if (Option.isNone(threads)) return { purpose: "interactive" as const, runId: null };
+    if (Option.isNone(threads)) return { purpose: "interactive" as const, ...unattributed };
     const threadId = caller.threadId;
-    const runId: RunId | null = yield* threads.value.getThreadShell(threadId).pipe(
-      Effect.map((shell) => shell?.activeRunId ?? null),
-      Effect.orElseSucceed(() => null),
-    );
-    if (runId === null) return { purpose: "interactive" as const, runId };
+    const shell = yield* threads.value
+      .getThreadShell(threadId)
+      .pipe(Effect.orElseSucceed(() => null));
+    const runId: RunId | null = shell?.activeRunId ?? null;
+    const parentRunId: RunId | null =
+      shell?.lineage.relationshipToParent === "subagent"
+        ? yield* threads.value
+            .getThreadRecords(threadId, ["contextTransfers"], {
+              contextTransferStatuses: ["consumed"],
+            })
+            .pipe(
+              Effect.map(
+                (records) =>
+                  records.contextTransfers.findLast(
+                    (transfer) =>
+                      transfer.type === "subagent_spawn" && transfer.targetThreadId === threadId,
+                  )?.sourcePoint.runId ?? null,
+              ),
+              Effect.orElseSucceed(() => null),
+            )
+        : null;
+    if (runId === null) return { purpose: "interactive" as const, runId, parentRunId };
     const scheduled = yield* threads.value
       .getThreadRecords(threadId, ["runs", "messages"], {
         runIds: [runId],
@@ -170,7 +192,11 @@ const make = Effect.gen(function* () {
         }),
         Effect.orElseSucceed(() => false),
       );
-    return { purpose: scheduled ? ("scheduled" as const) : ("interactive" as const), runId };
+    return {
+      purpose: scheduled ? ("scheduled" as const) : ("interactive" as const),
+      runId,
+      parentRunId,
+    };
   });
 
   const upstreamHeaders = (request: HttpServerRequest.HttpServerRequest, apiKey: string) => {
@@ -266,7 +292,7 @@ const make = Effect.gen(function* () {
         : errorResponse(400, "invalid_request_error", "Could not read the request body.");
     }
     const prepared = prepareBody(protocol!, raw.success);
-    const { purpose, runId } = yield* attribute(caller);
+    const { purpose, runId, parentRunId } = yield* attribute(caller);
     const requestId = yield* random.uuidV4();
     const meter = makeUsageMeter(protocol!, prepared.streaming);
     const milestones = yield* Ref.make<{
@@ -274,10 +300,11 @@ const make = Effect.gen(function* () {
       dispatchedAt?: number;
       firstContentAt?: number;
     }>({});
+    // The lease: the admission slot and the upstream fetch live in `lifetime`. The first terminal
+    // writer records the request and closes it, which frees the slot and aborts the fetch; any
+    // later writer is a no-op.
     const lifetime = yield* Scope.make();
-
     const settled = yield* Ref.make(false);
-    // Runs once: on completion, upstream failure, refusal, or the client going away.
     const finish = Effect.fnUntraced(function* (status: InferenceRequests.InferenceRequestStatus) {
       if (yield* Ref.getAndSet(settled, true)) return;
       const completedAt = yield* Clock.currentTimeMillis;
@@ -289,7 +316,7 @@ const make = Effect.gen(function* () {
         model: prepared.model,
         threadId: caller.threadId ?? null,
         runId,
-        parentRunId: null,
+        parentRunId,
         purpose,
         status,
         fallbackFrom: null,
@@ -307,13 +334,13 @@ const make = Effect.gen(function* () {
         durationMs: completedAt - receivedAt,
         ...meter.finish(),
       });
-    });
+    }, Effect.uninterruptible);
+    // The request scope closes even when the body is never read, e.g. the client left before it.
+    yield* Scope.addFinalizer(yield* Scope.Scope, finish("cancelled"));
 
-    const admitted = yield* admission.admit({ serverId, purpose, threadId: caller.threadId }).pipe(
-      Scope.provide(lifetime),
-      Effect.onInterrupt(() => finish("cancelled")),
-      Effect.result,
-    );
+    const admitted = yield* admission
+      .admit({ serverId, purpose, threadId: caller.threadId })
+      .pipe(Scope.provide(lifetime), Effect.result);
     if (admitted._tag === "Failure") {
       yield* finish("rejected");
       return errorResponse(503, "overloaded_error", admitted.failure.message);
@@ -328,11 +355,7 @@ const make = Effect.gen(function* () {
           HttpClientRequest.bodyUint8Array(prepared.body, "application/json"),
         ),
       )
-      .pipe(
-        Scope.provide(lifetime),
-        Effect.onInterrupt(() => finish("cancelled")),
-        Effect.result,
-      );
+      .pipe(Scope.provide(lifetime), Effect.result);
     if (response._tag === "Failure") {
       yield* finish("failed");
       return errorResponse(502, "upstream_error", "Could not reach the inference server.");

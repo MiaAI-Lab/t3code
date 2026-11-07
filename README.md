@@ -85,3 +85,12 @@ vp run dist:desktop:linux
 The AppImage is written to `release/`. It does not auto-update; rebuild to update.
 
 See [Local models](./docs/user/local-models.md) for setting up servers and providers.
+
+## Credits and license
+
+T3 Code is built by [T3 Tools](https://github.com/pingdotgg/t3code) and its contributors. This
+fork builds on their work and keeps their copyright notice. It is an independent fork, not
+affiliated with or endorsed by T3 Tools.
+
+Released under the [MIT License](./LICENSE), the same as upstream. Third-party notices are in
+[third-party-licenses](./third-party-licenses).

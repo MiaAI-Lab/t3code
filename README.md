@@ -1,7 +1,8 @@
 # T3 Code (local-first fork)
 
 This is a fork of [T3 Code](https://github.com/pingdotgg/t3code). For everything T3 Code does,
-see the upstream README. This page covers only what this fork adds.
+see the upstream README. This page covers only what this fork adds; [MIA_CHANGELOG.md](./MIA_CHANGELOG.md)
+lists every change in order.
 
 ## What's different
 
@@ -26,6 +27,12 @@ default and the core of the app.
   **Local models only**, so your diffs never move to a cloud provider on their own.
 - **Local is never priced**: local models show **Local** instead of a cloud price and never add to
   the cost total.
+- **The picker says where a model runs**: a local model in the model picker and message box shows
+  the machine and server it runs on.
+- **No longer served**: when a server stops listing the model a thread is set to, the message box
+  says so and offers the models it serves now, instead of failing on send.
+
+![Use a local model: servers found on this machine, the model to use, and the agent to run it](pics/use-local-model.png)
 
 ### Inference servers
 
@@ -54,6 +61,23 @@ Linked providers send their requests through T3 Code, which:
 - records each request's prompt, cached, and output tokens, queue wait, time to first token and
   decode speed, never the prompt or response text.
 - cancels the upstream request when a thread stops or T3 Code restarts.
+- stops a runaway reply so it no longer holds the GPU: one that keeps repeating the same text,
+  reasons for about 128 KB without answering, or sends nothing for 5 minutes before its first
+  token (2 minutes after). The thread says why, with **Continue** and **Choose model**. Turn it
+  off per server with `"watchdog": { "enabled": false }`.
+
+### Images for local models
+
+- **Check images**: on **Settings → Inference**, T3 Code asks a model to name the colour of four
+  test images and marks it **Reads images** or **Text only**. Ollama, LM Studio and llama.cpp
+  report vision themselves, so their models are marked without a check.
+- **Images reach the model**: Pi and OpenCode send your image attachments to a linked model unless
+  it is known to read text only. Attaching an image to a model nobody has checked starts the check
+  on its own, and the message box says when a model will not see the image.
+
+![Settings → Inference: GLM-5.3-Flash on a TensorFold server, checked as reading images](pics/inference-reads-images.png)
+
+![Pi on a local GLM-5.3-Flash names the colour of an attached image](pics/local-model-image.png)
 
 ### Seeing what your hardware did
 
@@ -74,14 +98,20 @@ Linked providers send their requests through T3 Code, which:
 - **Local harness evals**: `evals/mcp-tool-use` runs a local model through Pi, Codex and OpenCode
   side by side (`--harness`), recording tool-call validity, tokens and time to first token.
 
-### Use a local model in one step
+### A calmer sidebar
 
-- **Use a local model** (onboarding, the model picker, the command palette and **Settings →
-  Inference**) finds model servers on this machine without sending any keys, and links the one you
-  pick to an agent.
-- Settings keep T3 Code's own pages and names, so they read the same as in the T3 Code mobile app.
+- **Thread cards read title first**: the title with its status and time, then one quiet line with
+  a short project name, the branch only when it is not the default, the pull request and the diff.
+  Provider icons appear only when your threads use more than one.
+- **Settled stays out of the way**: it collapses to one line, opens to the five most recent
+  threads, and shows **Un-settle** when you hover a row.
 
-![Use a local model: servers found on this machine, the model to use, and the agent to run it](pics/use-local-model.png)
+### Works with the T3 Code mobile app
+
+- The official T3 Code app for iPhone connects to this fork's server and keeps working: the fork
+  only adds to the protocol, it never renames or removes anything.
+- Settings and thread states keep T3 Code's own pages and names (**Settled**, **Environments**,
+  **Inference**), so the desktop and the phone read the same.
 
 ### Appearance
 

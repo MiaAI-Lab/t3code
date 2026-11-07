@@ -4,8 +4,9 @@ import type {
   InferenceServerConfig,
   InferenceServerId,
 } from "@t3tools/contracts";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { useEffect, useState } from "react";
+import { RegistryContext } from "@effect/atom-react";
+import { runAtomCommand, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { useContext, useEffect, useState } from "react";
 
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -59,9 +60,6 @@ export function FindInferenceServerDialog({
   readonly onChangeAddress: () => void;
   readonly onClose: () => void;
 }) {
-  const discover = useAtomCommand(serverEnvironment.discoverInferenceServers, {
-    reportFailure: false,
-  });
   const saveSettings = useAtomCommand(serverEnvironment.updateSettings, { reportFailure: false });
   const refresh = useAtomCommand(serverEnvironment.refreshInferenceServers, {
     reportFailure: false,
@@ -70,10 +68,16 @@ export function FindInferenceServerDialog({
   const [moving, setMoving] = useState<string | null>(null);
   const host = hostOf(config.baseUrl);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- searches the server's host when the dialog opens
+  const registry = useContext(RegistryContext);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- searches the server's host once when the dialog opens
   useEffect(() => {
     let active = true;
-    void discover({ environmentId, input: host === undefined ? {} : { host } }).then((result) => {
+    void runAtomCommand(
+      registry,
+      serverEnvironment.discoverInferenceServers,
+      { environmentId, input: host === undefined ? {} : { host } },
+      { label: "find inference server", reportFailure: false, reportDefect: true },
+    ).then((result) => {
       if (!active) return;
       if (result._tag === "Failure") {
         const error = squashAtomCommandFailure(result);
@@ -88,7 +92,7 @@ export function FindInferenceServerDialog({
     return () => {
       active = false;
     };
-  }, [environmentId, discover, host]);
+  }, [environmentId, registry, host]);
 
   const candidates =
     search.status === "done"

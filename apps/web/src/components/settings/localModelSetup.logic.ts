@@ -17,10 +17,11 @@ import { inferenceServerIdFromName } from "./InferenceSettings.logic";
 
 const decodeInstanceId = Schema.decodeOption(ProviderInstanceId);
 
-/** Agents that reach a model server through T3's gateway, and the API each needs from it. */
+/** Agents that reach a model server through T3's gateway, best first, and the API each needs. */
 const LOCAL_MODEL_AGENTS = [
   { driver: ProviderDriverKind.make("pi"), label: "Pi", protocol: "chat-completions" },
   { driver: ProviderDriverKind.make("opencode"), label: "OpenCode", protocol: "chat-completions" },
+  // Experimental on local servers: Codex sends T3's tools as a group some servers reject.
   { driver: ProviderDriverKind.make("codex"), label: "Codex", protocol: "responses" },
 ] as const satisfies ReadonlyArray<{
   readonly driver: ProviderDriverKind;
@@ -38,34 +39,53 @@ export interface LocalModelAgentChoice {
   readonly label: string;
   /** Why it cannot use this server; absent when it can. */
   readonly unavailableReason?: string;
+  /** Not set up on this machine yet, so whether it is installed shows once it is. */
+  readonly unchecked: boolean;
+  readonly experimental: boolean;
   readonly recommended: boolean;
 }
 
-/** Every agent in preference order; the first that is installed and speaks the server's API is recommended. */
+/**
+ * Every agent, in preference order. An agent with no instance yet has not been checked, so it is
+ * offered rather than reported missing. The recommendation prefers an installed agent, then an
+ * unchecked one, and Codex only when neither Pi nor OpenCode can be used.
+ */
 export function localModelAgentChoices(
   server: Pick<InferenceDiscoveredServer, "apiProtocols">,
-  providers: ReadonlyArray<Pick<ServerProvider, "driver" | "installed">>,
+  providers: ReadonlyArray<Pick<ServerProvider, "driver" | "installed" | "enabled">>,
   machineLabel: string,
 ): ReadonlyArray<LocalModelAgentChoice> {
-  let recommended = false;
-  return LOCAL_MODEL_AGENTS.map((agent) => {
-    const installed = providers.some(
-      (provider) => provider.driver === agent.driver && provider.installed,
+  const choices = LOCAL_MODEL_AGENTS.map((agent) => {
+    // A turned-off instance is not checked, so only enabled ones can say the agent is missing.
+    const checked = providers.filter(
+      (provider) => provider.driver === agent.driver && provider.enabled,
     );
-    const unavailableReason = !installed
-      ? `${agent.label} is not installed on ${machineLabel}.`
-      : server.apiProtocols?.includes(agent.protocol) !== true
-        ? `The server did not confirm the ${PROTOCOL_LABELS[agent.protocol]} API ${agent.label} needs.`
-        : undefined;
-    const isRecommended = unavailableReason === undefined && !recommended;
-    if (isRecommended) recommended = true;
+    const installed = checked.some((provider) => provider.installed);
+    const unchecked = checked.length === 0;
+    const unavailableReason =
+      !installed && !unchecked
+        ? `${agent.label} is not installed on ${machineLabel}.`
+        : server.apiProtocols?.includes(agent.protocol) !== true
+          ? `The server did not confirm the ${PROTOCOL_LABELS[agent.protocol]} API ${agent.label} needs.`
+          : undefined;
     return {
       driver: agent.driver,
       label: agent.label,
       ...(unavailableReason === undefined ? {} : { unavailableReason }),
-      recommended: isRecommended,
+      unchecked,
+      experimental: agent.driver === "codex",
+      installed,
     };
   });
+  const usable = choices.filter((choice) => choice.unavailableReason === undefined);
+  const recommended =
+    usable.find((choice) => choice.installed && !choice.experimental) ??
+    usable.find((choice) => !choice.experimental) ??
+    usable[0];
+  return choices.map(({ installed: _installed, ...choice }) => ({
+    ...choice,
+    recommended: choice.driver === recommended?.driver,
+  }));
 }
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);

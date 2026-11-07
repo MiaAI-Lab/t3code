@@ -197,12 +197,15 @@ function ModelPickerProviderNotices({
   updateRequiredNotices,
   emptyLabel,
   offerLocalSetup,
+  environmentId,
   onRequestClose,
   onOpenProviderSetup,
 }: {
   setupEntries: ReadonlyArray<ProviderInstanceEntry>;
   emptyLabel: string;
   offerLocalSetup: boolean;
+  /** Setup runs on the environment this picker chooses for, not the settings default. */
+  environmentId: EnvironmentId | null;
   updateRequiredNotices: ReadonlyArray<{ instanceId: ProviderInstanceId; notice: string }>;
   onRequestClose: (() => void) | undefined;
   onOpenProviderSetup: ((instanceId: ProviderInstanceId) => void) | undefined;
@@ -238,7 +241,13 @@ function ModelPickerProviderNotices({
           <InlineButton
             onClick={() => {
               onRequestClose?.();
-              void navigate({ to: "/settings/inference", search: { setup: "local" } });
+              void navigate({
+                to: "/settings/inference",
+                search: {
+                  setup: "local",
+                  ...(environmentId === null ? {} : { machine: environmentId }),
+                },
+              });
             }}
           >
             Use a local model
@@ -1085,6 +1094,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
               offerLocalSetup={
                 !props.instanceEntries.some((entry) => entry.snapshot.inference === "local")
               }
+              environmentId={props.environmentId}
               updateRequiredNotices={updateRequiredNotices}
               emptyLabel={
                 selectedInstanceId === "favorites" && !isSearching

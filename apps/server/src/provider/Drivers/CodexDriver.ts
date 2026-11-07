@@ -296,7 +296,7 @@ export const CodexDriver: ProviderDriver<
       processEnv,
       snapshot.getSnapshot.pipe(Effect.map((value) => value.models)),
       undefined,
-      gateway.forBackground,
+      gateway,
     );
     const snapshotForCwd = (cwd: string) =>
       !effectiveConfig.enabled

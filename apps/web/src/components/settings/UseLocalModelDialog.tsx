@@ -5,15 +5,16 @@ import type {
   ProviderDriverKind,
   ServerProvider,
 } from "@t3tools/contracts";
-import { useAtomValue } from "@effect/atom-react";
+import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import {
   type AtomCommandResult,
+  runAtomCommand,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { describeInferenceModelContext } from "@t3tools/client-runtime/state/inference-presentation";
 import * as Result from "effect/Result";
 import { CheckIcon, CpuIcon, SearchIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 
 import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { serverEnvironment } from "../../state/server";
@@ -116,16 +117,22 @@ export function UseLocalModelDialog({
   const [driver, setDriver] = useState<ProviderDriverKind | null>(null);
   const [progress, setProgress] = useState<Progress>({ step: "choose" });
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- searches the environment's machine when the dialog opens
+  const registry = useContext(RegistryContext);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- searches the environment's machine once when the dialog opens
   useEffect(() => {
     let active = true;
-    void discover({ environmentId, input: {} }).then((result) => {
+    void runAtomCommand(
+      registry,
+      serverEnvironment.discoverInferenceServers,
+      { environmentId, input: {} },
+      { label: "discover inference servers", reportFailure: false, reportDefect: true },
+    ).then((result) => {
       if (active) setSearch(searchFromResult(result));
     });
     return () => {
       active = false;
     };
-  }, [environmentId, discover]);
+  }, [environmentId, registry]);
 
   const runSearch = async (baseUrl?: string) => {
     setSearch({ status: "searching" });
@@ -187,6 +194,15 @@ export function UseLocalModelDialog({
       refreshed._tag === "Success"
         ? refreshed.value.providers.find((provider) => provider.instanceId === instanceId)
         : undefined;
+    if (listed?.installed === false) {
+      setProgress({
+        step: "incomplete",
+        title: `${agentLabel} is not installed on ${machineLabel}`,
+        message: `${serverName} is saved and linked. Install ${agentLabel}, or pick another agent and try again.`,
+        canRetry: true,
+      });
+      return;
+    }
     const slug = linkedModelSlug(listed?.models ?? [], serverId, modelId);
     if (slug === undefined) {
       setProgress({
@@ -429,12 +445,19 @@ export function UseLocalModelDialog({
                             {choice.recommended ? (
                               <Badge variant="success">Recommended</Badge>
                             ) : null}
+                            {choice.experimental ? (
+                              <Badge variant="outline">Experimental</Badge>
+                            ) : null}
                           </span>
-                          {choice.unavailableReason === undefined ? null : (
+                          {choice.unavailableReason !== undefined ? (
                             <span className="text-xs text-muted-foreground">
                               {choice.unavailableReason}
                             </span>
-                          )}
+                          ) : choice.unchecked ? (
+                            <span className="text-xs text-muted-foreground">
+                              Not set up on {machineLabel} yet; checked when you connect.
+                            </span>
+                          ) : null}
                         </span>
                       </label>
                     ))}

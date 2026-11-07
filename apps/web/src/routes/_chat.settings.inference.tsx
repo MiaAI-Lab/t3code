@@ -12,5 +12,17 @@ export const Route = createFileRoute("/_chat/settings/inference")({
 
 function SettingsInferenceRoute() {
   const { setup, repair } = Route.useSearch();
-  return <InferenceSettingsPanel openLocalSetup={setup === "local"} repairServerId={repair} />;
+  const navigate = Route.useNavigate();
+  return (
+    <InferenceSettingsPanel
+      openLocalSetup={setup === "local"}
+      repairServerId={repair}
+      onLinkHandled={() =>
+        void navigate({
+          search: ({ setup: _setup, repair: _repair, ...rest }) => rest,
+          replace: true,
+        })
+      }
+    />
+  );
 }

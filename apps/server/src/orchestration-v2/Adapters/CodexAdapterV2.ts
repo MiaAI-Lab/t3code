@@ -1806,18 +1806,16 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           adapterOptions.gateway === undefined
             ? undefined
             : yield* adapterOptions.gateway.forSession(yield* readMcpSession(input.threadId));
-        if (gateway === undefined && adapterOptions.gateway !== undefined) {
-          const resolution = yield* adapterOptions.gateway.resolution;
-          // Codex without the gateway uses its own login, which would move a local thread to the cloud.
-          if (resolution?.managed === false && resolution.local === true) {
-            return yield* new ProviderAdapter.ProviderAdapterOpenSessionError({
-              driver: CODEX_PROVIDER,
-              providerSessionId: input.providerSessionId,
-              cause: new Error(
-                `${resolution.reason} This Codex instance runs local models, so it waits instead of using the cloud.`,
-              ),
-            });
-          }
+        const refusal =
+          gateway === undefined && adapterOptions.gateway !== undefined
+            ? yield* adapterOptions.gateway.withoutGateway
+            : undefined;
+        if (refusal !== undefined) {
+          return yield* new ProviderAdapter.ProviderAdapterOpenSessionError({
+            driver: CODEX_PROVIDER,
+            providerSessionId: input.providerSessionId,
+            cause: new Error(refusal),
+          });
         }
         const client = yield* clientFactory.open({
           instanceId: adapterOptions.instanceId,

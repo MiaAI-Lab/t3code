@@ -14,6 +14,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Stream from "effect/Stream";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
 import { parseProcNetTcp } from "../preview/PortScanner.ts";
@@ -34,7 +35,7 @@ const PROBE_TIMEOUT = Duration.millis(1500);
 const SEARCH_DEADLINE = Duration.seconds(8);
 const MAX_LISTENERS = 48;
 const MAX_CANDIDATES = 80;
-const MAX_BODY_CHARS = 4_000_000;
+const MAX_BODY_BYTES = 4_000_000;
 const AGENT_PROTOCOLS: ReadonlyArray<InferenceApiProtocol> = ["chat-completions", "responses"];
 const PROC_TABLES = ["/proc/net/tcp", "/proc/net/tcp6"];
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
@@ -129,8 +130,22 @@ export function discoveryCandidates(input: {
   return [...candidates.values()];
 }
 
+// Ports this high are usually handed out by the OS to helpers, not chosen for a model server.
+const EPHEMERAL_PORT_FLOOR = 32768;
+
+const portOf = (baseUrl: string) => {
+  try {
+    return Number(new URL(baseUrl).port) || 0;
+  } catch {
+    return 0;
+  }
+};
+
+/** Ready before needing a key, then servers on chosen ports, then ones not yet registered. */
 const rank = (server: InferenceDiscoveredServer) =>
-  (server.status === "ready" ? 0 : 2) + (server.registeredServerId === undefined ? 0 : 1);
+  (server.status === "ready" ? 0 : 4) +
+  (portOf(server.baseUrl) >= EPHEMERAL_PORT_FLOOR ? 2 : 0) +
+  (server.registeredServerId === undefined ? 0 : 1);
 
 export const make = Effect.gen(function* () {
   const client = yield* HttpClient.HttpClient;
@@ -153,12 +168,25 @@ export const make = Effect.gen(function* () {
     }),
   );
 
-  // Untraced: one per candidate port; the discover span covers them.
+  // Untraced: one per candidate port; the discover span covers them. Reading stops at the cap,
+  // so an unrelated service answering with a large body cannot fill memory.
   const get = Effect.fnUntraced(function* (url: string) {
     return yield* client.execute(HttpClientRequest.get(url)).pipe(
-      Effect.flatMap((response) =>
-        Effect.map(response.text, (body) => ({ status: response.status, body })),
-      ),
+      Effect.flatMap((response) => {
+        let read = 0;
+        return response.stream.pipe(
+          Stream.takeWhile((chunk) => {
+            read += chunk.length;
+            return read <= MAX_BODY_BYTES;
+          }),
+          Stream.decodeText(),
+          Stream.mkString,
+          Effect.map((body) => ({
+            status: response.status,
+            body: read > MAX_BODY_BYTES ? undefined : body,
+          })),
+        );
+      }),
       Effect.timeoutOption(PROBE_TIMEOUT),
       Effect.map(Option.getOrUndefined),
       Effect.orElseSucceed(() => undefined),
@@ -196,9 +224,7 @@ export const make = Effect.gen(function* () {
     if (listed.status === 401 || listed.status === 403) {
       return { ...common, status: "needs-key", models: [] } satisfies InferenceDiscoveredServer;
     }
-    if (listed.status < 200 || listed.status >= 300 || listed.body.length > MAX_BODY_CHARS) {
-      return undefined;
-    }
+    if (listed.status < 200 || listed.status >= 300 || listed.body === undefined) return undefined;
     const list = readModelList(listed.body);
     if (list === undefined || list.models.length === 0) return undefined;
     const protocols = yield* Effect.forEach(

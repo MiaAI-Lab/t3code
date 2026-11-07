@@ -14,35 +14,53 @@ const codex = ProviderDriverKind.make("codex");
 const rtx = InferenceServerId.make("rtx");
 
 describe("localModelAgentChoices", () => {
-  it("recommends the first installed agent that speaks the server's API, and says why others cannot", () => {
+  it("recommends an installed Pi or OpenCode, offers unchecked ones, and says why others cannot", () => {
     const choices = localModelAgentChoices(
       { apiProtocols: ["chat-completions"] },
       [
-        { driver: pi, installed: true },
-        { driver: codex, installed: true },
+        { driver: pi, installed: true, enabled: true },
+        { driver: codex, installed: true, enabled: true },
       ],
       "rtx",
     );
     expect(choices).toEqual([
-      { driver: pi, label: "Pi", recommended: true },
+      { driver: pi, label: "Pi", unchecked: false, experimental: false, recommended: true },
       {
         driver: ProviderDriverKind.make("opencode"),
         label: "OpenCode",
-        unavailableReason: "OpenCode is not installed on rtx.",
+        unchecked: true,
+        experimental: false,
         recommended: false,
       },
       {
         driver: codex,
         label: "Codex",
         unavailableReason: "The server did not confirm the OpenAI Responses API Codex needs.",
+        unchecked: false,
+        experimental: true,
         recommended: false,
       },
     ]);
+  });
+
+  it("prefers an unchecked Pi over an installed Codex, and reports a missing install", () => {
+    const both = { apiProtocols: ["chat-completions", "responses"] } as const;
+    const recommended = (providers: Parameters<typeof localModelAgentChoices>[1]) =>
+      localModelAgentChoices(both, providers, "rtx").find((choice) => choice.recommended)?.label;
+    expect(recommended([{ driver: codex, installed: true, enabled: true }])).toBe("Pi");
     expect(
-      localModelAgentChoices({}, [{ driver: pi, installed: true }], "rtx").some(
-        (choice) => choice.recommended,
-      ),
-    ).toBe(false);
+      localModelAgentChoices(both, [{ driver: pi, installed: false, enabled: true }], "rtx")[0]
+        ?.unavailableReason,
+    ).toBe("Pi is not installed on rtx.");
+    // A turned-off Pi has not been checked, so it is offered again rather than called missing.
+    expect(recommended([{ driver: pi, installed: false, enabled: false }])).toBe("Pi");
+    expect(
+      recommended([
+        { driver: pi, installed: false, enabled: true },
+        { driver: ProviderDriverKind.make("opencode"), installed: false, enabled: true },
+        { driver: codex, installed: true, enabled: true },
+      ]),
+    ).toBe("Codex");
   });
 });
 

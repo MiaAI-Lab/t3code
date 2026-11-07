@@ -1007,6 +1007,7 @@ describe("CodexAdapterV2 sessions", () => {
             }),
             forSession: () => Effect.undefined,
             forBackground: Effect.undefined,
+            withoutGateway: Effect.succeed("Inference server rtx is not ready."),
           },
           clientFactory: {
             open: () =>

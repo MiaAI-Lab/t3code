@@ -780,7 +780,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
             },
           };
 
+          // Moving to another provider is the "Any provider" policy.
           yield* serverSettings.updateSettings({
+            textGenerationFallback: "any",
             providerInstances,
             textGenerationModelSelection: selection,
           });
@@ -821,6 +823,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
       const next = yield* serverSettings.updateSettings({
+        textGenerationFallback: "any",
         providerInstances: {
           [ProviderInstanceId.make("codex")]: {
             driver: ProviderDriverKind.make("codex"),
@@ -853,6 +856,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
       };
 
       const custom = yield* serverSettings.updateSettings({
+        textGenerationFallback: "any",
         providerInstances,
         defaultModelSelection: {
           instanceId: claude,
@@ -2615,6 +2619,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
               // A default instance id is no proof of its driver.
               codex: { driver: cursor, enabled: true },
             },
+            textGenerationFallback: "any",
             textGenerationModelSelection: { instanceId: cursorId, model: "auto" },
           }),
         );

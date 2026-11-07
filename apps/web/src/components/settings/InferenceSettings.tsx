@@ -77,11 +77,14 @@ const USAGE_WINDOW = "24h";
 export function InferenceSettingsPanel({
   openLocalSetup = false,
   repairServerId,
+  onLinkHandled,
 }: {
-  /** Opens "Use a local model" on arrival, as links from elsewhere ask. */
+  /** Opens "Use a local model", as links from elsewhere ask. */
   readonly openLocalSetup?: boolean;
-  /** Opens "Find" for this server on arrival, as the composer's outage notice asks. */
+  /** Opens "Find" for this server, as the composer's outage notice asks. */
   readonly repairServerId?: string | undefined;
+  /** Clears the link's request once its dialog closes, so the same link works again. */
+  readonly onLinkHandled?: () => void;
 }) {
   const { scope, environment } = useSettingsScope();
   return (
@@ -93,6 +96,7 @@ export function InferenceSettingsPanel({
           projectScoped={scope.kind === "project" || scope.kind === "checkout"}
           openLocalSetup={openLocalSetup}
           repairServerId={repairServerId}
+          onLinkHandled={onLinkHandled}
         />
       ) : (
         <SettingsSection {...searchableSetting("inference-servers")}>
@@ -111,11 +115,13 @@ function EnvironmentInferenceServers({
   projectScoped,
   openLocalSetup,
   repairServerId,
+  onLinkHandled,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly projectScoped: boolean;
   readonly openLocalSetup: boolean;
   readonly repairServerId: string | undefined;
+  readonly onLinkHandled: (() => void) | undefined;
 }) {
   const environmentId = environment.environmentId;
   const sessionState = useEnvironmentSessionState(environmentId);
@@ -153,10 +159,18 @@ function EnvironmentInferenceServers({
   const canDiscover = useAtomValue(
     serverEnvironment.discoverInferenceServers.permissionAtom(environmentId),
   );
-  const [localSetupOpen, setLocalSetupOpen] = useState(openLocalSetup);
-  const [finding, setFinding] = useState<InferenceServerId | null>(
-    repairServerId === undefined ? null : (repairServerId as InferenceServerId),
-  );
+  const [localSetupRequested, setLocalSetupRequested] = useState(false);
+  const localSetupOpen = localSetupRequested || openLocalSetup;
+  const closeLocalSetup = () => {
+    setLocalSetupRequested(false);
+    if (openLocalSetup) onLinkHandled?.();
+  };
+  const [findingRequested, setFinding] = useState<InferenceServerId | null>(null);
+  const finding = findingRequested ?? (repairServerId as InferenceServerId | undefined) ?? null;
+  const closeFinding = () => {
+    setFinding(null);
+    if (repairServerId !== undefined) onLinkHandled?.();
+  };
   const selections = useEnvironmentSettings(environmentId, (settings) => [
     settings.defaultModelSelection,
     settings.textGenerationModelSelection,
@@ -203,7 +217,7 @@ function EnvironmentInferenceServers({
               </Button>
             ) : null}
             {!readOnly && canDiscover ? (
-              <Button size="xs" onClick={() => setLocalSetupOpen(true)}>
+              <Button size="xs" onClick={() => setLocalSetupRequested(true)}>
                 <SearchIcon className="size-3" aria-hidden />
                 Use a local model
               </Button>
@@ -222,7 +236,7 @@ function EnvironmentInferenceServers({
             description={EMPTY_STATE}
             control={
               !readOnly && canDiscover ? (
-                <Button size="sm" onClick={() => setLocalSetupOpen(true)}>
+                <Button size="sm" onClick={() => setLocalSetupRequested(true)}>
                   Find local models
                 </Button>
               ) : null
@@ -265,17 +279,17 @@ function EnvironmentInferenceServers({
             selections,
           )}
           onChangeAddress={() => {
-            setFinding(null);
+            closeFinding();
             setDialog({ mode: "edit", id: finding });
           }}
-          onClose={() => setFinding(null)}
+          onClose={closeFinding}
         />
       ) : null}
       {localSetupOpen && !readOnly ? (
         <UseLocalModelDialog
           environmentId={environmentId}
           machineLabel={environment.label}
-          onClose={() => setLocalSetupOpen(false)}
+          onClose={closeLocalSetup}
         />
       ) : null}
       {dialog !== null && !readOnly && (dialog.mode === "add" || editing !== undefined) ? (

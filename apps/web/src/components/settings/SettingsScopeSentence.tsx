@@ -73,7 +73,10 @@ export function SettingsScopeSentence() {
     !SETTINGS_ENVIRONMENT_ONLY_PATHS.has(pathname) ||
     scope.search.project !== undefined ||
     scope.search.checkout !== undefined;
-  const showMachine = environments.length > 1;
+  // A link naming a machine that is gone keeps the picker, so the user can choose another.
+  const showMachine =
+    environments.length > 1 ||
+    (scope.search.machine !== undefined && scope.scope.kind === "unavailable");
   if (!showProject && !showMachine) return null;
   const props: SettingsScopeMenuProps = {
     value: scope.search,

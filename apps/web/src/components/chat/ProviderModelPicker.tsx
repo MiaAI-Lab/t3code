@@ -5,8 +5,12 @@ import {
   type ProviderDriverKind,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
+import type { ServerSettings } from "@t3tools/contracts";
+import { Atom } from "effect/reactivity";
 import { CpuIcon } from "lucide-react";
 import { createContext, memo, type ReactNode, useRef, useState } from "react";
+import { serverEnvironment } from "../../state/server";
 import { Badge } from "../ui/badge";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -72,6 +76,8 @@ function lockBackgroundScroll(popup: HTMLElement | null) {
 }
 
 /** What a docked effort column needs from its picker: the model it serves. */
+
+const NO_SERVER_SETTINGS = Atom.make<ServerSettings | null>(null);
 export const DockedPickerContext = createContext<{ modelLabel: string }>({ modelLabel: "" });
 
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
@@ -147,11 +153,21 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     : triggerTitle;
   const showInstanceBadge =
     activeEntry !== null && shouldShowInstanceBadge(activeEntry, props.instanceEntries);
+  const serverSettings = useAtomValue(
+    props.environmentId === null
+      ? NO_SERVER_SETTINGS
+      : serverEnvironment.settingsValueAtom(props.environmentId),
+  );
+  const linkedServerId = activeEntry?.snapshot.inferenceServerId;
   // Where a local model runs: its linked server's name, else just that it is local.
   const localPlace =
     activeEntry?.snapshot.inference === "local" && props.triggerLabel === undefined
-      ? (activeEntry.snapshot.inferenceServerId ?? "local")
+      ? linkedServerId === undefined
+        ? "local"
+        : serverSettings?.inferenceServers[linkedServerId]?.displayName?.trim() || linkedServerId
       : null;
+  // A managed model's name ends with its server id; the chip names the server instead.
+  const repeatedPlace = linkedServerId === undefined ? null : ` (${linkedServerId})`;
 
   const setIsMenuOpen = (open: boolean) => {
     props.onOpenChange?.(open);
@@ -246,8 +262,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const triggerText =
     props.triggerLabel ??
     multipleLabel ??
-    (localPlace !== null && triggerTitle.endsWith(` (${localPlace})`)
-      ? triggerTitle.slice(0, -` (${localPlace})`.length)
+    (localPlace !== null && repeatedPlace !== null && triggerTitle.endsWith(repeatedPlace)
+      ? triggerTitle.slice(0, -repeatedPlace.length)
       : triggerTitle);
   const triggerTextProps = {
     className: cn(

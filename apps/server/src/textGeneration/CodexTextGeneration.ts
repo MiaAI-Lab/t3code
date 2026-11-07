@@ -66,7 +66,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     import("@t3tools/contracts").ProviderSetupError,
     Scope.Scope
   >,
-  gateway?: CodexGatewaySource["forBackground"],
+  gateway?: Pick<CodexGatewaySource, "forBackground" | "withoutGateway">,
 ) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -282,7 +282,12 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       const serviceTier =
         resolved || fellBack ? undefined : getCodexServiceTierOptionValue(modelSelection);
       const binary = effectiveConfig.binaryPath || "codex";
-      const managed = gateway === undefined ? undefined : yield* gateway;
+      const managed = gateway === undefined ? undefined : yield* gateway.forBackground;
+      const refusal =
+        gateway !== undefined && managed === undefined ? yield* gateway.withoutGateway : undefined;
+      if (refusal !== undefined) {
+        return yield* new TextGenerationError({ operation, detail: refusal });
+      }
       const env = {
         ...effectiveEnvironment,
         ...managed?.environment,

@@ -13,6 +13,7 @@ import {
   codexGatewayLaunch,
   codexModelCatalog,
   makeCodexGatewaySource,
+  codexWithoutGatewayRefusal,
   withCodexGatewayStatus,
 } from "./codexGateway.ts";
 
@@ -176,4 +177,16 @@ it("a managed status offers the server's models; an unmanaged one says why", () 
   );
   expect(waiting.models).toEqual([]);
   expect(withCodexGatewayStatus(draft, undefined)).toBe(draft);
+});
+
+it("lets Codex use its own login without the gateway only once the server is disabled", () => {
+  expect(codexWithoutGatewayRefusal(undefined)).toBeUndefined();
+  expect(
+    codexWithoutGatewayRefusal({ managed: false, reason: "Inference server rtx is disabled." }),
+  ).toBeUndefined();
+  expect(codexWithoutGatewayRefusal({ managed: false, reason: "Not ready.", local: true })).toMatch(
+    /waits instead of using the cloud/,
+  );
+  // Managed but without a launch: a missing credential must not fall back to the cloud either.
+  expect(codexWithoutGatewayRefusal({ managed: true, server })).toMatch(/does not use the cloud/);
 });

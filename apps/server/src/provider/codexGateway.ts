@@ -107,6 +107,24 @@ export interface CodexGatewaySource {
   ) => Effect.Effect<CodexGatewayLaunch | undefined>;
   /** Text generation borrows a background credential for the scope. */
   readonly forBackground: Effect.Effect<CodexGatewayLaunch | undefined, never, Scope.Scope>;
+  /**
+   * Why Codex must not run without the gateway right now, or undefined when its own login may run
+   * it. Without the gateway Codex uses that login, which is the cloud, so a local link refuses.
+   */
+  readonly withoutGateway: Effect.Effect<string | undefined>;
+}
+
+/** A linked instance may fall back to its own login only once the user disabled its server. */
+export function codexWithoutGatewayRefusal(
+  resolution: InferenceGateway.ManagedServerResolution | undefined,
+): string | undefined {
+  if (resolution === undefined) return undefined;
+  if (resolution.managed) {
+    return "T3 Code could not route this request through its gateway, and this Codex instance runs local models, so it does not use the cloud instead.";
+  }
+  return resolution.local
+    ? `${resolution.reason} This Codex instance runs local models, so it waits instead of using the cloud.`
+    : undefined;
 }
 
 export interface CodexModelCatalogTarget {
@@ -157,6 +175,7 @@ const unmanaged: CodexGatewaySource = {
   resolution: Effect.undefined,
   forSession: () => Effect.undefined,
   forBackground: Effect.undefined,
+  withoutGateway: Effect.undefined,
 };
 
 /**
@@ -196,6 +215,9 @@ export const makeCodexGatewaySource = Effect.fn("makeCodexGatewaySource")(functi
     forBackground: gateway
       .backgroundCredential(instanceId, "responses")
       .pipe(Effect.map((held) => (held === undefined ? undefined : codexGatewayLaunch(held)))),
+    withoutGateway: gateway
+      .resolve(instanceId, "responses")
+      .pipe(Effect.map(codexWithoutGatewayRefusal)),
   } satisfies CodexGatewaySource;
 });
 

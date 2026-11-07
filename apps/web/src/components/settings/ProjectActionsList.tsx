@@ -40,7 +40,7 @@ export function ProjectActionsList({
             ) : null}
             {script.runOnSettle ? (
               <span className="shrink-0 rounded-sm border border-border/60 px-1.5 py-px text-2xs font-normal text-muted-foreground">
-                on done
+                on settle
               </span>
             ) : null}
             {script.previewUrl ? (

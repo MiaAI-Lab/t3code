@@ -4,7 +4,7 @@ Use your ChatGPT plan or an existing Codex CLI login to code in T3 Code.
 
 ## Connect with ChatGPT
 
-Connect during onboarding or in **Settings → Models & agents → Agents**. For a remote machine,
+Connect during onboarding or in **Settings → Providers**. For a remote machine,
 select that environment first. T3 Code handles Codex installation; sign in on
 OpenAI and allow sharing of your ChatGPT plan.
 
@@ -27,14 +27,14 @@ covers installation and custom configuration.
 
 ## Local models (experimental)
 
-Link the instance to a server registered in **Settings → Models & agents → Model servers** that serves the OpenAI
+Link the instance to a server registered in **Settings → Inference** that serves the OpenAI
 Responses API, and Codex runs on that server's models through T3 Code's gateway. Some servers
 reject the tools Codex sends, so treat it as experimental; the provider's status says whether the
 link is used. See [Local models](./local-models.md#codex).
 
 ## Use multiple accounts
 
-Add another ChatGPT account in **Settings → Models & agents → Agents**, then select the account
+Add another ChatGPT account in **Settings → Providers**, then select the account
 from the thread's model picker. Compatible accounts can continue the same thread.
 Connecting accounts through T3 Code leaves your CLI login unchanged.
 

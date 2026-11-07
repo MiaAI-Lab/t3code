@@ -11,7 +11,6 @@ import type {
 } from "@t3tools/contracts";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
-import { NewProjectsSettings } from "./SettingsPanels";
 import { cn } from "../../lib/utils";
 import { useEnvironmentQuery } from "../../state/query";
 import { sourceControlEnvironment } from "../../state/sourceControl";
@@ -467,7 +466,6 @@ export function SourceControlSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      <NewProjectsSettings />
       <ProjectDefaultsSettings category="source-control" />
       {environmentId === null ? (
         <SettingsSection id={searchableSetting("source-control").id} title="Server environment">

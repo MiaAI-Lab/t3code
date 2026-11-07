@@ -7,7 +7,6 @@ import { useSettingsRestore } from "../components/settings/SettingsPanels";
 
 import { AppRouteModal, AppRouteModalClose } from "../components/AppRouteModal";
 import { SettingsBreadcrumb } from "../components/settings/SettingsBreadcrumb";
-import { SettingsDestinationTabs } from "../components/settings/SettingsDestinationTabs";
 import { SettingsSidebarNav } from "../components/settings/SettingsSidebarNav";
 import {
   SettingsScopeProvider,
@@ -135,7 +134,6 @@ function SettingsContentLayout() {
               <AppRouteModalClose />
             </div>
           </header>
-          <SettingsDestinationTabs pathname={location.pathname} />
           <div key={`${contentScopeKey}:${restoreSignal}`} className="min-h-0 flex flex-1 flex-col">
             <SettingsScopeBoundary pathname={location.pathname}>
               <Outlet />
@@ -183,7 +181,7 @@ export const Route = createFileRoute("/_chat/settings")({
   search: { middlewares: [retainSettingsScope] },
   beforeLoad: async ({ location }) => {
     if (location.pathname === "/settings") {
-      throw redirect({ to: "/settings/models", replace: true });
+      throw redirect({ to: "/settings/general", replace: true });
     }
     const moved = movedSettingsPath(location.pathname, location.hash);
     if (moved) throw redirect({ to: moved, search: true, hash: true, replace: true });

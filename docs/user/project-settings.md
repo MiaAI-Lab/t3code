@@ -27,7 +27,7 @@ again.
 Providers and diagnostics are per machine: they show one environment at a time, the primary
 one until you pick another. Every other setting fans out to the selection.
 
-With a project selected, a provider's switch in **Settings → Models & agents → Agents** turns it on or off for
+With a project selected, a provider's switch in **Settings → Providers** turns it on or off for
 that project only, in either direction: a provider off on the machine can be used in one project,
 and one on everywhere can be kept out of another. That project's model pickers follow the switch,
 and no new turn there can start on a provider it turned off, including queued messages and
@@ -211,9 +211,9 @@ Inherit follows each machine's rules; Off keeps that project's worktrees until y
 manually. Custom applies separate worktree rules to the selected project or checkout. Browser
 captures and log retention remain machine-wide.
 
-Worktrees can be removed after a chosen number of inactive days, after a thread moves to Done, after
-merging, or when they have no commits beyond the default branch. Set **Delete worktrees of done threads** to 0 days
-to remove a worktree at the next cleanup after its thread moves to Done. In repositories without remotes,
+Worktrees can be removed after a chosen number of inactive days, after a thread settles, after
+merging, or when they have no commits beyond the default branch. Set settled retention to 0 days
+to remove a worktree at the next cleanup after settlement. In repositories without remotes,
 unchanged-worktree cleanup compares against the branch checked out in the project workspace;
 if that checkout has a detached HEAD, the worktree is kept. Only T3-managed worktrees are eligible.
 Active sessions and shared worktrees prevent removal. **Keep worktrees with local changes** defaults

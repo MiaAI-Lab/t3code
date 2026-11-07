@@ -48,7 +48,7 @@ session.
 
 ## Local models
 
-Link the instance to a server registered in **Settings → Models & agents → Model servers** and T3 Code adds it to
+Link the instance to a server registered in **Settings → Inference** and T3 Code adds it to
 OpenCode as `t3-<server>` with the server's models, routed through T3 Code's gateway. This works
 only for an OpenCode server T3 Code starts, so leave **Server URL** empty. See
 [Local models](./local-models.md#opencode).

@@ -3,7 +3,7 @@ import {
   WorkspaceBreadcrumbItem,
   WorkspaceBreadcrumbSeparator,
 } from "../WorkspaceBreadcrumb";
-import { SETTINGS_SECTION_LABELS, settingsDestinationFor } from "./settingsSearch";
+import { SETTINGS_SECTION_LABELS } from "./settingsSearch";
 
 const SETTINGS_BREADCRUMB_LABELS: Readonly<Record<string, string>> = {
   ...SETTINGS_SECTION_LABELS,
@@ -11,17 +11,8 @@ const SETTINGS_BREADCRUMB_LABELS: Readonly<Record<string, string>> = {
   "/settings/open-source-licenses": "Open source licenses",
 };
 
-/** A page with sibling tabs is named by its destination; the tabs name the page. */
 function settingsBreadcrumbLabel(pathname: string): string | null {
   const normalizedPathname = pathname.replace(/\/+$/, "") || "/";
-  const destination = settingsDestinationFor(normalizedPathname);
-  if (
-    destination !== undefined &&
-    destination.paths.length > 1 &&
-    destination.paths.some((path) => path === normalizedPathname)
-  ) {
-    return destination.label;
-  }
   return SETTINGS_BREADCRUMB_LABELS[normalizedPathname] ?? null;
 }
 

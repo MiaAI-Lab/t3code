@@ -249,7 +249,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Failed to reopen thread",
+          title: "Failed to un-settle thread",
           description: error instanceof Error ? error.message : "An error occurred.",
         }),
       );
@@ -626,9 +626,9 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   ) : activeThreadSettled ? (
     <ThreadStatusLine
       icon={<CheckCircle2Icon />}
-      label={settledAt ? `Done ${formatRelativeTimeLabel(settledAt)}` : "Done"}
+      label={settledAt ? `Settled ${formatRelativeTimeLabel(settledAt)}` : "Settled"}
       clockMinute={nowMinute}
-      actionLabel={isUnsettling ? "Reopening..." : "Reopen"}
+      actionLabel={isUnsettling ? "Un-settling..." : "Un-settle"}
       actionDisabled={!canOperateThread || isUnsettling}
       onAction={() => void handleUnsettleActiveThreadStable()}
     />
@@ -661,9 +661,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         return;
       }
       if (settleAndAdvance(activeThreadRef)) return;
-      void settleThread(activeThreadRef).then(
-        toastThreadActionFailure("Failed to mark thread as done"),
-      );
+      void settleThread(activeThreadRef).then(toastThreadActionFailure("Failed to settle thread"));
     },
     "thread.pin": ({ event }) => {
       // An open project list pins its highlighted project with this key instead.

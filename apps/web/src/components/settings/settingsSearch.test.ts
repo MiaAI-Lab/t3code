@@ -13,10 +13,8 @@ import {
   getThreadAutoSettlementSearchAvailability,
   isSettingsSearchScopeAvailable,
   movedSettingsPath,
-  projectScopedSettingsOn,
-  SETTINGS_ENVIRONMENT_ONLY_PATHS,
   searchSettings,
-  SETTINGS_DESTINATIONS,
+  SETTINGS_NAV_GROUPS,
   SETTINGS_SEARCH_ITEMS,
   sourceControlHostSearchItems,
   sourceControlHostSettingsSearchId,
@@ -66,21 +64,17 @@ describe("searchSettings", () => {
     expect(searchSettings("sharing", ITEMS).map((item) => item.id)).toEqual(["network-access"]);
     expect(searchSettings("claude", ITEMS).map((item) => item.id)).toEqual(["providers"]);
     expect(searchSettings("long lines", ITEMS).map((item) => item.id)).toEqual(["word-wrap"]);
-    // A renamed page still answers to its former name.
-    expect(searchSettings("inference servers")[0]?.to).toBe("/settings/inference");
     for (const query of ["fallback", "fallback agent", "fallback model"]) {
       expect(searchSettings(query)[0]).toMatchObject({
         id: "fallback-model",
-        to: "/settings/models",
+        to: "/settings/threads",
         scope: "environment-defaults",
       });
     }
   });
 
   it("hides the Secrets page from nav and search while the secrets feature is disabled", () => {
-    expect(SETTINGS_DESTINATIONS.flatMap((destination) => destination.paths)).not.toContain(
-      "/settings/secrets",
-    );
+    expect(SETTINGS_NAV_GROUPS.flatMap((group) => group.paths)).not.toContain("/settings/secrets");
     expect(searchSettings("1password").map((item) => item.to)).not.toContain("/settings/secrets");
   });
 
@@ -198,7 +192,7 @@ describe("searchSettings", () => {
   it("finds rows by the titles shown on their pages", () => {
     for (const [title, id] of [
       ["Automatic worktree cleanup", "storage-worktrees"],
-      ["Delete worktrees of done threads", "storage-worktrees"],
+      ["Delete settled worktrees", "storage-worktrees"],
       ["Delete old browser artifacts", "storage-artifacts"],
       ["Delete old rotated logs", "storage-artifacts"],
       ["Custom search URL", "browser-search-engine"],
@@ -279,8 +273,8 @@ describe("auto-settlement search availability", () => {
     expect(searchSettings("auto-settle", items).map((item) => item.id)).toEqual([
       "auto-settle-inactive-threads",
       "auto-settle-merged-threads",
-      "keep-threads-with-pull-requests",
       "days-before-auto-settle",
+      "keep-threads-with-pull-requests",
     ]);
   });
 
@@ -353,13 +347,8 @@ describe("source control host search items", () => {
 describe("movedSettingsPath", () => {
   it("sends old links to the page their row moved to", () => {
     expect(movedSettingsPath("/settings/general", "text-generation-model")).toBe(
-      "/settings/models",
+      "/settings/threads",
     );
-    expect(movedSettingsPath("/settings/threads", "default-model")).toBe("/settings/models");
-    expect(movedSettingsPath("/settings/threads", "add-project-starts-in")).toBe(
-      "/settings/source-control",
-    );
-    expect(movedSettingsPath("/settings/threads", "snooze-options")).toBeNull();
     expect(movedSettingsPath("/settings/connections", "authorized-clients")).toBe(
       "/settings/access",
     );
@@ -379,16 +368,5 @@ describe("movedSettingsPath", () => {
     expect(movedSettingsPath("/settings/projects", "project-defaults")).toBeNull();
     expect(movedSettingsPath("/settings/connections", "remote-environments")).toBeNull();
     expect(movedSettingsPath("/settings/appearance", "theme")).toBeNull();
-  });
-});
-
-describe("SETTINGS_ENVIRONMENT_ONLY_PATHS", () => {
-  it("lists only pages without a setting a project can override", () => {
-    for (const path of SETTINGS_ENVIRONMENT_ONLY_PATHS) {
-      expect(projectScopedSettingsOn(path as never)).toEqual([]);
-    }
-    expect(projectScopedSettingsOn("/settings/models").map((item) => item.id)).toContain(
-      "default-model",
-    );
   });
 });

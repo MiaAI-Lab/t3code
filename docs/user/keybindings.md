@@ -1,6 +1,6 @@
 # Keybindings
 
-Customize shortcuts in **Settings → Chat & input → Keyboard shortcuts** on web and desktop. That page
+Customize shortcuts in **Settings → Keybindings** on web and desktop. That page
 also lists the command IDs and defaults available in your version.
 
 ## Composer controls
@@ -18,7 +18,7 @@ inserts a new line. This applies to the web and desktop composer at desktop widt
 `mod+Enter` to do the opposite for one message, even when the send shortcut
 requires a modifier. `mod+Alt+Enter` sends, keeps that thread running in the
 background, and opens a fresh new-thread composer. In a new thread, `mod+Enter`
-does the same. Change these shortcuts in **Settings → Chat & input → Keyboard shortcuts** under
+does the same. Change these shortcuts in **Settings → Keybindings** under
 **Composer: Opposite Queue or Steer Action**, **Composer: Start in Background**,
 or **Composer: Send and Start New Thread**. These bindings take priority over the
 send shortcut. Click the send button to use the configured follow-up behavior.
@@ -156,10 +156,10 @@ a shortcut.
 ## Commands with special behavior
 
 `thread.stop` interrupts the running turn in the focused thread. It has no default
-shortcut; assign one in **Settings → Chat & input → Keyboard shortcuts**.
+shortcut; assign one in **Settings → Keybindings**.
 
 `thread.undo` (`mod+z` by default) reverses the actions shown in the notice at the
-bottom of the sidebar, such as unpin, mark as done, snooze, archive, or discarding a
+bottom of the sidebar, such as unpin, settle, snooze, archive, or discarding a
 draft. Consecutive
 actions of the same kind undo together. The notice remains available for five
 seconds after the latest action. Right after an action, the shortcut works even

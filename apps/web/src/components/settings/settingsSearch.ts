@@ -16,7 +16,6 @@ import { commandLabel } from "./KeybindingsSettings.logic";
 import type { ResolvedSettingsScope } from "./settingsScope";
 
 export type SettingsPath =
-  | "/settings/models"
   | "/settings/projects"
   | "/settings/general"
   | "/settings/diagnostics"
@@ -89,108 +88,77 @@ export interface SettingsSearchAvailability {
 }
 
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
-  "/settings/models": "Models",
   "/settings/diagnostics": "Diagnostics",
   "/settings/projects": "Projects",
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
   "/settings/chat": "Chat",
   "/settings/diffs": "Diffs & pull requests",
-  "/settings/keybindings": "Keyboard shortcuts",
+  "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
-  "/settings/providers": "Agents",
-  "/settings/inference": "Model servers",
+  "/settings/providers": "Providers",
+  "/settings/inference": "Inference",
   "/settings/threads": "Threads",
   "/settings/browser": "Browser",
   "/settings/devices": "Devices",
   "/settings/scheduled-tasks": "Scheduled tasks",
   "/settings/source-control": "Source control",
   "/settings/worktrees": "Worktrees",
-  "/settings/connections": "Computers",
+  "/settings/connections": "Environments",
   "/settings/access": "Sharing & access",
   "/settings/secrets": "Secrets",
   "/settings/maintenance": "Maintenance",
   "/settings/labs": "Labs",
   "/settings/about": "About",
   "/settings/voice": "Voice",
-  "/settings/archived": "Archived threads",
+  "/settings/archived": "Archive",
 };
 
-/** Former and technical names a page still answers to in search. */
-const SETTINGS_SECTION_ALIASES: Readonly<Partial<Record<SettingsPath, ReadonlyArray<string>>>> = {
-  "/settings/models": ["models agents", "default model", "background writing", "text generation"],
-  "/settings/providers": ["providers", "harness"],
-  "/settings/inference": ["inference", "inference servers", "local models", "gpu"],
-  "/settings/connections": ["environments", "connections", "machines"],
-  "/settings/keybindings": ["keybindings", "hotkeys"],
-  "/settings/archived": ["archive"],
-  "/settings/labs": ["beta", "experimental", "advanced"],
-  "/settings/maintenance": ["advanced", "storage"],
-};
-
-export interface SettingsDestination {
-  readonly label: string;
-  /** Its pages, shown as tabs; the first is where the destination opens. */
+/** Sidebar order. A group without a heading is set apart by space alone. */
+export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
+  readonly heading: string | null;
   readonly paths: ReadonlyArray<SettingsPath>;
-}
-
-/** The sidebar: a few task-named destinations, each a tab strip over the pages it holds. */
-export const SETTINGS_DESTINATIONS: ReadonlyArray<SettingsDestination> = [
+}> = [
   {
-    label: "Models & agents",
-    paths: ["/settings/models", "/settings/inference", "/settings/providers"],
-  },
-  { label: "General", paths: ["/settings/general"] },
-  { label: "Appearance", paths: ["/settings/appearance"] },
-  {
-    label: "Chat & input",
+    heading: null,
     paths: [
+      "/settings/general",
+      "/settings/appearance",
       "/settings/chat",
-      "/settings/threads",
+      "/settings/diffs",
+      "/settings/keybindings",
       "/settings/voice",
       "/settings/snap-shot",
-      "/settings/keybindings",
     ],
   },
   {
-    label: "Projects & Git",
+    heading: "Agents",
     paths: [
-      "/settings/projects",
-      "/settings/source-control",
-      "/settings/diffs",
-      "/settings/worktrees",
-      "/settings/archived",
+      "/settings/providers",
+      "/settings/inference",
+      "/settings/threads",
+      "/settings/browser",
+      "/settings/devices",
+      "/settings/scheduled-tasks",
     ],
   },
   {
-    label: "Tools & automation",
-    paths: ["/settings/browser", "/settings/devices", "/settings/scheduled-tasks"],
+    heading: "Code",
+    paths: ["/settings/projects", "/settings/source-control", "/settings/worktrees"],
   },
   {
-    label: "Connections & sharing",
+    heading: "Connections",
     paths: [
       "/settings/connections",
       "/settings/access",
       ...(isSecretsFeatureEnabled ? (["/settings/secrets"] as const) : []),
     ],
   },
-  { label: "Advanced", paths: ["/settings/maintenance", "/settings/labs"] },
-  { label: "About", paths: ["/settings/about"] },
+  {
+    heading: null,
+    paths: ["/settings/maintenance", "/settings/labs", "/settings/about", "/settings/archived"],
+  },
 ];
-
-/** The destination a settings page belongs to; detail pages belong to the page that links them. */
-export function settingsDestinationFor(pathname: string): SettingsDestination | undefined {
-  const page = SETTINGS_DETAIL_PAGE_PARENTS[pathname] ?? pathname;
-  return SETTINGS_DESTINATIONS.find((destination) =>
-    destination.paths.some((path) => page === path || page.startsWith(`${path}/`)),
-  );
-}
-
-// Detail pages without a nav entry belong to the page that links to them.
-export const SETTINGS_DETAIL_PAGE_PARENTS: Readonly<Record<string, SettingsPath>> = {
-  "/settings/diagnostics": "/settings/maintenance",
-  "/settings/open-source-licenses": "/settings/about",
-};
 
 export function keybindingSearchAnchorId<Command extends KeybindingCommand>(command: Command) {
   return `keybinding-${command}` as const;
@@ -277,7 +245,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/worktrees",
     scope: "project-defaults",
     searchTerms: [
-      "disk storage automatic delete deleted archived threads old inactive merged settled done of unchanged worktrees retention days project inherit off custom",
+      "disk storage automatic delete deleted archived threads old inactive merged settled unchanged worktrees retention days project inherit off custom",
     ],
   },
   {
@@ -312,14 +280,14 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "default-model",
     title: "Default model",
-    to: "/settings/models",
+    to: "/settings/threads",
     scope: "project-defaults",
     searchTerms: ["new thread project provider reasoning effort"],
   },
   {
     id: "fallback-model",
     title: "Fallback model",
-    to: "/settings/models",
+    to: "/settings/threads",
     scope: "environment-defaults",
     searchTerms: ["fallback agent provider out of usage new threads"],
     environmentOnly: true,
@@ -455,9 +423,9 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "project-grouping",
-    title: "Combine projects across computers",
+    title: "Project grouping",
     to: "/settings/general",
-    searchTerms: ["project grouping combine matching repositories environments sidebar"],
+    searchTerms: ["combine matching repositories environments sidebar"],
   },
   {
     id: "project-order",
@@ -493,20 +461,20 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "boring-sidebar",
-    title: "Group threads by project",
-    to: "/settings/general",
+    title: "Boring sidebar (group by project)",
+    to: "/settings/labs",
     searchTerms: ["beta folders project tree legacy old classic sidebar"],
   },
   {
     id: "boring-sidebar-multiline",
     title: "Two-line folder rows",
-    to: "/settings/general",
+    to: "/settings/labs",
     searchTerms: ["beta boring sidebar folder rows multiline branch pull request details"],
   },
   {
     id: "tool-call-visibility",
     title: "Tool calls in chat",
-    to: "/settings/chat",
+    to: "/settings/labs",
     searchTerms: [
       "beta hide tool calls commands edits searches work log activity quiet chat zen final answers only",
     ],
@@ -630,11 +598,9 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "auto-settle-inactive-threads",
-    title: "Move idle threads to Done",
+    title: "Auto-settle inactive threads",
     to: "/settings/threads",
-    searchTerms: [
-      "auto-settle settled done sidebar inactivity idle days no activity automatically",
-    ],
+    searchTerms: ["sidebar inactivity days no activity automatically"],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },
@@ -647,9 +613,9 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "auto-settle-merged-threads",
-    title: "Move threads to Done when their PR merges",
+    title: "Auto-settle merged threads",
     to: "/settings/threads",
-    searchTerms: ["auto-settle settled done pull request merge closed automatically sidebar"],
+    searchTerms: ["pull request merge closed automatically sidebar"],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },
@@ -664,10 +630,10 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "days-before-auto-settle",
-    title: "Idle days before moving to Done",
+    title: "Days of inactivity before auto-settle",
     to: "/settings/threads",
     targetId: "auto-settle-inactive-threads",
-    searchTerms: ["auto-settle settled done thread timeout activity inactivity sidebar"],
+    searchTerms: ["thread timeout activity sidebar"],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },
@@ -795,14 +761,14 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "add-project-starts-in",
     title: "Add project starts in",
-    to: "/settings/source-control",
+    to: "/settings/threads",
     scope: "environment-defaults",
     searchTerms: ["base directory folder browser path home"],
   },
   {
     id: "ghq-clone-layout",
     title: "Clone into host folders",
-    to: "/settings/source-control",
+    to: "/settings/threads",
     scope: "environment-defaults",
     searchTerms: ["ghq clone destination host owner repository root layout"],
   },
@@ -833,26 +799,22 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "text-generation-model",
-    title: "Background writing model",
-    to: "/settings/models",
+    title: "Text generation model",
+    to: "/settings/threads",
     scope: "project-defaults",
-    searchTerms: [
-      "text generation model generated thread titles source control content default provider",
-    ],
+    searchTerms: ["generated thread titles source control content default provider"],
   },
   {
     id: "text-generation-fallback",
-    title: "Background writing fallback",
-    to: "/settings/models",
+    title: "Text generation fallback",
+    to: "/settings/threads",
     scope: "environment",
-    searchTerms: [
-      "text generation fallback local models only cloud privacy background writing titles commit messages",
-    ],
+    searchTerms: ["local models only cloud privacy background writing titles commit messages"],
   },
   {
     id: "thread-title-instructions",
     title: "Thread title instructions",
-    to: "/settings/models",
+    to: "/settings/threads",
     scope: "project-defaults",
     searchTerms: ["generated thread titles prompt custom style naming rename regenerate"],
   },
@@ -975,7 +937,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "inference-servers",
-    title: "Model servers",
+    title: "Inference servers",
     to: "/settings/inference",
     searchTerms: [
       "local models self-hosted model server gpu ollama lm studio llama.cpp vllm sglang openai compatible base url api key context window concurrency load queue",
@@ -1315,11 +1277,9 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "remote-environments",
-    title: "Computers",
+    title: "Environments",
     to: "/settings/connections",
-    searchTerms: [
-      "environments add pair backend host code ssh config agent tunnel saved t3 connect",
-    ],
+    searchTerms: ["add pair backend host code ssh config agent tunnel saved t3 connect"],
   },
   {
     id: "load-balancing",
@@ -1365,7 +1325,6 @@ export type SettingsSearchItemId = (typeof SETTINGS_SEARCH_ITEMS)[number]["id"];
 const SEARCH_ITEMS_BY_ID = new Map(SETTINGS_SEARCH_ITEMS.map((item) => [item.id, item] as const));
 
 const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScope | null>> = {
-  "/settings/models": null,
   "/settings/diagnostics": "environment",
   "/settings/projects": "project",
   "/settings/general": null,
@@ -1392,28 +1351,6 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/archived": "project-defaults",
 };
 
-const PROJECT_SCOPES: ReadonlySet<SettingsSearchScope | null> = new Set([
-  "project-defaults",
-  "project",
-  "checkout",
-]);
-
-/** Pages whose settings never vary per project, so the scope sentence leaves out its project picker. */
-export const SETTINGS_ENVIRONMENT_ONLY_PATHS: ReadonlySet<string> = new Set<SettingsPath>([
-  "/settings/inference",
-  "/settings/keybindings",
-  "/settings/labs",
-]);
-
-/** Settings on a page that a project can override, from the search metadata every row registers. */
-export function projectScopedSettingsOn(path: SettingsPath): ReadonlyArray<SettingsSearchItem> {
-  const items: readonly SettingsSearchItem[] = SETTINGS_SEARCH_ITEMS;
-  return items.filter(
-    (item) =>
-      item.to === path && PROJECT_SCOPES.has(item.scope ?? SETTINGS_CATEGORY_SCOPES[item.to]),
-  );
-}
-
 const RENAMED_SETTINGS_PATHS: Readonly<Record<string, SettingsPath>> = {
   "/settings/integrations": "/settings/browser",
   "/settings/storage": "/settings/maintenance",
@@ -1421,8 +1358,6 @@ const RENAMED_SETTINGS_PATHS: Readonly<Record<string, SettingsPath>> = {
 };
 const SPLIT_SETTINGS_PATHS: ReadonlySet<string> = new Set([
   "/settings/general",
-  "/settings/threads",
-  "/settings/labs",
   "/settings/appearance",
   "/settings/source-control",
   "/settings/connections",
@@ -1432,8 +1367,7 @@ const SPLIT_SETTINGS_PATHS: ReadonlySet<string> = new Set([
 const MOVED_SECTION_ANCHORS: Readonly<Record<string, SettingsPath>> = {
   "authorized-clients": "/settings/access",
   "legacy-features": "/settings/labs",
-  "text-generation": "/settings/models",
-  "new-projects": "/settings/source-control",
+  "text-generation": "/settings/threads",
   about: "/settings/about",
 };
 
@@ -1572,7 +1506,6 @@ export function searchSettings(
       const fields = [
         title,
         normalizeSearchText(SETTINGS_SECTION_LABELS[item.to]),
-        ...(SETTINGS_SECTION_ALIASES[item.to] ?? []).map(normalizeSearchText),
         ...(item.searchTerms ?? []).map(normalizeSearchText),
       ];
       if (!queryTokens.every((token) => fields.some((field) => field.includes(token)))) return [];

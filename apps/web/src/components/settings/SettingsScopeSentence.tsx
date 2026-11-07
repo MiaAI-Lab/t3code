@@ -28,7 +28,6 @@ import {
 } from "../ui/menu";
 import { useOptionalSettingsScope } from "./SettingsScopeContext";
 import { resolveSettingsScope, type SettingsScopeSearch } from "./settingsScope";
-import { SETTINGS_ENVIRONMENT_ONLY_PATHS } from "./settingsSearch";
 import {
   ALL_ENVIRONMENTS_VALUE,
   ALL_PROJECTS_VALUE,
@@ -68,16 +67,6 @@ export function SettingsScopeSentence() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const { environments } = useEnvironments();
   if (scope === null || SETTINGS_DEVICE_ONLY_PATHS.has(pathname)) return null;
-  // An axis with one choice says nothing; one already narrowed by the link stays visible.
-  const showProject =
-    !SETTINGS_ENVIRONMENT_ONLY_PATHS.has(pathname) ||
-    scope.search.project !== undefined ||
-    scope.search.checkout !== undefined;
-  // A link naming a machine that is gone keeps the picker, so the user can choose another.
-  const showMachine =
-    environments.length > 1 ||
-    (scope.search.machine !== undefined && scope.scope.kind === "unavailable");
-  if (!showProject && !showMachine) return null;
   const props: SettingsScopeMenuProps = {
     value: scope.search,
     singleEnvironment: scope.singleEnvironment,
@@ -85,23 +74,18 @@ export function SettingsScopeSentence() {
     environments,
     onChange: scope.selectScope,
   };
-  const machineWord = scope.search.machine || scope.scope.kind === "checkout" ? "on" : "across";
   return (
     <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 px-3 text-sm text-muted-foreground sm:px-4">
-      {showProject ? (
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="shrink-0">Applying settings for</span>
-          <ProjectScopeMenu {...props} />
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className="shrink-0">Applying settings for</span>
+        <ProjectScopeMenu {...props} />
+      </span>
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className="shrink-0">
+          {scope.search.machine || scope.scope.kind === "checkout" ? "on" : "across"}
         </span>
-      ) : null}
-      {showMachine ? (
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="shrink-0">
-            {showProject ? machineWord : `Applying settings ${machineWord}`}
-          </span>
-          <EnvironmentScopeMenu {...props} />
-        </span>
-      ) : null}
+        <EnvironmentScopeMenu {...props} />
+      </span>
     </p>
   );
 }

@@ -13,7 +13,7 @@ import { primaryServerKeybindingsAtom } from "../state/server";
 import * as ThreadUndo from "@t3tools/client-runtime/state/thread-undo";
 
 type UndoOptions = {
-  action: "Marked done" | "Snoozed" | "Unpinned" | "Archived" | "Discarded";
+  action: "Settled" | "Snoozed" | "Unpinned" | "Archived" | "Discarded";
   undo: () => Promise<AtomCommandResult<unknown, unknown>>;
   failureTitle: string;
   claim: ReturnType<typeof ThreadUndo.begin>;
@@ -30,16 +30,7 @@ export const useThreadUndoNotice = create<{ notice: UndoNotice | null }>(() => (
 
 function threadUndoNoticeSummary(notice: Pick<UndoNotice, "action" | "count">): string {
   const noun = notice.action === "Discarded" ? "draft" : "thread";
-  const things = `${notice.count} ${noun}${notice.count === 1 ? "" : "s"}`;
-  return notice.action === "Marked done" ? `Marked ${things} done` : `${notice.action} ${things}`;
-}
-
-/** The footer's short form: "Archived 3", "Marked 3 done". */
-export function threadUndoNoticeShortSummary(notice: Pick<UndoNotice, "action" | "count">) {
-  if (notice.count === 1) return notice.action;
-  return notice.action === "Marked done"
-    ? `Marked ${notice.count} done`
-    : `${notice.action} ${notice.count}`;
+  return `${notice.action} ${notice.count} ${noun}${notice.count === 1 ? "" : "s"}`;
 }
 
 export function threadUndoLabel(keybindings: Parameters<typeof shortcutLabelForCommand>[0]) {

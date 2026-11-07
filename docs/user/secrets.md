@@ -33,7 +33,7 @@ credential in 1Password and refresh to use the new value.
 
 If 1Password is locked or signed out, the provider or feature that needs the secret shows an error
 naming the secret provider. Unlock 1Password on the server's machine, then select **Refresh** in
-**Settings → Models & agents → Agents**. T3 Code never replaces a saved credential it cannot read with another
+**Settings → Providers**. T3 Code never replaces a saved credential it cannot read with another
 login.
 
 ## Remove a secret provider

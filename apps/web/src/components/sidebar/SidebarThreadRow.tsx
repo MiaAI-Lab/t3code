@@ -499,13 +499,13 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
   settle: (
     <>
       <CircleCheckIcon aria-hidden className="size-3" />
-      Done
+      Settle
     </>
   ),
   unsettle: (
     <>
       <Undo2Icon aria-hidden className="size-3" />
-      Reopen
+      Un-settle
     </>
   ),
   wake: (
@@ -1328,7 +1328,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 <span
                   className={cn(
                     "relative ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end",
-                    variantAction === "unsettle" && props.settlementSupported && "min-w-14",
+                    variantAction === "unsettle" && props.settlementSupported && "min-w-16",
                     props.sweepAction !== null && "hidden",
                     jumpHintLabel && JUMP_HINT_SLOT_CLASS_NAME,
                   )}
@@ -1406,7 +1406,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                         render={
                           <button
                             type="button"
-                            aria-label="Reopen thread"
+                            aria-label="Un-settle thread"
                             onClick={handleUnsettleClick}
                             onPointerDown={handleActionPointerDown}
                             className={cn(
@@ -1416,7 +1416,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                           />
                         }
                       >
-                        Reopen
+                        Un-settle
                       </TooltipTrigger>
                       <TooltipPopup side="top">Move back to Active</TooltipPopup>
                     </Tooltip>
@@ -1426,7 +1426,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                         render={
                           <button
                             type="button"
-                            aria-label="Mark as done"
+                            aria-label="Settle thread"
                             onClick={handleSettleClick}
                             onPointerDown={handleActionPointerDown}
                             className={cn(
@@ -1438,7 +1438,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                       >
                         <CheckIcon className="size-3" />
                       </TooltipTrigger>
-                      <TooltipPopup side="top">Mark as done</TooltipPopup>
+                      <TooltipPopup side="top">Settle thread</TooltipPopup>
                     </Tooltip>
                   )}
                   {jumpHintLabel ? <JumpHintBadge label={jumpHintLabel} /> : null}
@@ -1616,7 +1616,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                             render={
                               <button
                                 type="button"
-                                aria-label="Mark as done"
+                                aria-label="Settle thread"
                                 onClick={handleSettleClick}
                                 onPointerDown={handleActionPointerDown}
                                 className="-mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
@@ -1626,7 +1626,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                             <CheckIcon className="size-3.5" />
                             Settle
                           </TooltipTrigger>
-                          <TooltipPopup>Mark as done</TooltipPopup>
+                          <TooltipPopup>Settle thread</TooltipPopup>
                         </Tooltip>
                       ) : null}
                     </span>

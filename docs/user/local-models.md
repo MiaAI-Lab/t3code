@@ -24,7 +24,7 @@ its address if it uses another one.
 
 ## Register your inference servers
 
-Open **Settings → Models & agents → Model servers** and add each model server with **Add server**: its **Base URL**
+Open **Settings → Inference** and add each model server with **Add server**: its **Base URL**
 (such as `http://localhost:11434/v1`), an optional name and API key, and optionally **Max
 concurrent requests**. T3 Code checks each server and shows whether it is ready, the models it
 serves with their context windows, and its current load when the server reports one. **Refresh**
@@ -56,8 +56,8 @@ find it ready, or connecting to it failed, and only if the fallback serves the s
 not for overflow: while the first server is up, requests wait in its queue even when the fallback
 is idle. A request that already started is never moved.
 
-Then link a provider instance to a server with the **Model server** setting on its card in
-**Settings → Models & agents → Agents**. A linked instance counts as local while its server is enabled, and the
+Then link a provider instance to a server with the **Inference server** setting on its card in
+**Settings → Providers**. A linked instance counts as local while its server is enabled, and the
 model picker shows the server's name and readiness next to the provider, such as `Pi · rtx ·
 Ready`. T3 Code also caps the context window it assumes for the instance at what the server
 actually serves. Changing the link, or a server's URL, key or enabled switch, applies to sessions
@@ -84,7 +84,7 @@ Code's gateway, which:
   server, add `"watchdog": { "enabled": false }` to that server under `inferenceServers` in `settings.json`.
 
 T3 Code sends images to a linked model only after it has checked that the model reads them. On
-**Settings → Models & agents → Model servers**, press **Check images** next to a model: T3 Code
+**Settings → Inference**, press **Check images** next to a model: T3 Code
 asks it to name the colour of four test images, through the same queue as your threads, and marks
 the model **Reads images** or **Text only**. Pi and OpenCode instances then pass your image
 attachments to a model that reads them, from their next session. A day later the button returns as
@@ -143,7 +143,7 @@ Add your server as a provider in `~/.pi/agent/models.json`:
 ```
 
 Set it as Pi's default with `defaultProvider` and `defaultModel` in
-`~/.pi/agent/settings.json`, enable Pi in **Settings → Models & agents → Agents**, and refresh
+`~/.pi/agent/settings.json`, enable Pi in **Settings → Providers**, and refresh
 it. See [Pi](./providers-pi.md). To skip this file, register the server in **Settings →
 Inference** and link the Pi instance to it instead; see
 [Pi on a registered server](#pi-on-a-registered-server).
@@ -168,7 +168,7 @@ Add an OpenAI-compatible provider to `opencode.json`:
 OpenCode's **Server URL** setting in T3 Code is for an OpenCode server, not your
 inference server. Leave it empty. See [OpenCode](./providers-opencode.md).
 
-To skip this file, register the server in **Settings → Models & agents → Model servers** and link the OpenCode
+To skip this file, register the server in **Settings → Inference** and link the OpenCode
 instance to it. T3 Code then adds the server to OpenCode as `t3-<server>` with every model it
 reports, sized from what the server advertises, and sends its requests through the gateway, like
 [Pi on a registered server](#pi-on-a-registered-server). Pick a model such as
@@ -224,7 +224,7 @@ wait: Codex never falls back to your OpenAI login. Disable the server to use tha
 ## Mark the instance as local
 
 An instance linked to an enabled inference server already counts as local. For any other
-instance, in **Settings → Models & agents → Agents**, turn on **Runs local models** for each instance whose
+instance, in **Settings → Providers**, turn on **Runs local models** for each instance whose
 models all run on hardware you control. Leave it off for an instance that mixes
 local and cloud models, and split those into separate instances instead.
 
@@ -238,7 +238,7 @@ Marked instances:
 
 ## Background writing fallback
 
-**Settings → Models & agents → Models → Background writing fallback** decides where background writing
+**Settings → Threads → Text generation fallback** decides where background writing
 goes when its model cannot run:
 
 - **Local models only** (default): another ready local instance, or an error. Your

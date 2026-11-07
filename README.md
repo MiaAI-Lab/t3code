@@ -22,14 +22,14 @@ default and the core of the app.
 - **Runs local models**: mark a provider instance as local. Local instances come first in the
   model picker and provider lists, and new threads default to them.
 - **Background writing stays local**: thread titles, commit messages, PR text, branch names and
-  voice cleanup use a local model. **Background writing fallback** defaults to **Local models only**,
-  so your diffs never move to a cloud provider on their own, even before any local model is set up.
+  voice cleanup use a local model. **Settings → Threads → Text generation fallback** defaults to
+  **Local models only**, so your diffs never move to a cloud provider on their own.
 - **Local is never priced**: local models show **Local** instead of a cloud price and never add to
   the cost total.
 
 ### Inference servers
 
-- **Settings → Models & agents → Model servers**: register your model servers (Ollama, LM Studio, llama.cpp, vLLM,
+- **Settings → Inference**: register your model servers (Ollama, LM Studio, llama.cpp, vLLM,
   SGLang, TensorFold, or anything OpenAI-compatible). Each shows its readiness, models, context
   windows, load, last failure and, on TensorFold, prompt cache health.
 - **Fallback server**: a server can name another to take its requests when it is down. It is not
@@ -74,20 +74,14 @@ Linked providers send their requests through T3 Code, which:
 - **Local harness evals**: `evals/mcp-tool-use` runs a local model through Pi, Codex and OpenCode
   side by side (`--harness`), recording tool-call validity, tokens and time to first token.
 
-### Simpler settings
+### Use a local model in one step
 
-- **Nine places instead of 24 pages**: Models & agents, General, Appearance, Chat & input, Projects &
-  Git, Tools & automation, Connections & sharing, Advanced, About. Each holds its pages as tabs, so
-  old links and search still land on the right row.
-- **Models**: one page for the model new threads use, background writing, and the model servers on
-  your hardware. Settings open here.
-- **Less to read**: the project and machine pickers appear only when they choose something, rarely
-  used appearance options fold away, and settings use plain names (Background writing, Model
-  servers, Computers). Search still answers to the old names.
+- **Use a local model** (onboarding, the model picker, the command palette and **Settings →
+  Inference**) finds model servers on this machine without sending any keys, and links the one you
+  pick to an agent.
+- Settings keep T3 Code's own pages and names, so they read the same as in the T3 Code mobile app.
 
 ![Use a local model: servers found on this machine, the model to use, and the agent to run it](pics/use-local-model.png)
-
-![Settings → Models & agents → Models: your hardware, the model for new threads, and background writing](pics/settings-models.png)
 
 ### Appearance
 

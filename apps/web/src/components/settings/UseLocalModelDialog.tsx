@@ -337,7 +337,7 @@ export function UseLocalModelDialog({
               <section className="grid gap-2" aria-labelledby="local-model-servers">
                 <div className="flex items-center justify-between gap-2">
                   <h3 id="local-model-servers" className="text-sm font-medium">
-                    Model servers on {machineLabel}
+                    Inference servers on {machineLabel}
                   </h3>
                   <Button
                     size="xs"
@@ -524,8 +524,8 @@ function DiscoveredServerOption({
       </div>
       {server.status === "needs-key" ? (
         <p className="text-xs text-muted-foreground">
-          It answered, but lists its models only with a key. Add it in Settings, Model servers, with
-          its key.
+          It answered, but lists its models only with a key. Add it in Settings, Inference, with its
+          key.
         </p>
       ) : (
         server.models.map((model) => (

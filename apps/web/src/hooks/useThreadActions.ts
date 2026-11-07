@@ -80,7 +80,7 @@ export class ThreadSettlementUnsupportedError extends Schema.TaggedError<ThreadS
   },
 ) {
   override get message(): string {
-    return "This environment's server does not support Done yet. Update the server to use it.";
+    return "This environment's server does not support settling yet. Update the server to use Settle.";
   }
 }
 
@@ -125,7 +125,7 @@ export class ThreadAutoSettleOptOutUnsupportedError extends Schema.TaggedError<T
   },
 ) {
   override get message(): string {
-    return "This environment's server does not support turning off the automatic move to Done per thread yet. Update the server to use it.";
+    return "This environment's server does not support turning auto-settle off per thread yet. Update the server to use it.";
   }
 }
 
@@ -776,10 +776,10 @@ export function useThreadActions() {
       markThreadVisited(scopedThreadKey(target), wokeAt);
     }
     showThreadUndoNotice({
-      action: "Marked done",
+      action: "Settled",
       claim: action,
       undo: () => runUndoPlan(target, undoPlan),
-      failureTitle: "Failed to reopen thread",
+      failureTitle: "Failed to undo settle",
     });
     return result;
   };

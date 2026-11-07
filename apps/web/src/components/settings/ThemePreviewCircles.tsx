@@ -58,11 +58,11 @@ const STANDARD_THEME_PREVIEW_COLORS: Record<
 /** The standard dark preview in the gray style, matching index.css. */
 export const STANDARD_GRAY_DARK_PREVIEW_COLORS: ThemeCardPreviewColors = {
   ...STANDARD_THEME_PREVIEW_COLORS.dark,
-  sidebar: "#18181b",
-  canvas: "#1d1d20",
-  surface: "#252528",
-  accentSurface: "#2e2e33",
-  messageSurface: "#2e2e33",
+  sidebar: "#0e0e0e",
+  canvas: "#121212",
+  surface: "#181818",
+  accentSurface: "#222222",
+  messageSurface: "#222222",
 };
 
 export const STANDARD_THEME_CARDS: ReadonlyArray<ThemeCardDefinition> = [

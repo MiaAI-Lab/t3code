@@ -1277,25 +1277,25 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
-/* The standard dark mode is dark gray unless the device picks OLED, which keeps the true-black
+/* The standard dark mode is a neutral near-black unless the device picks OLED, which keeps the true-black
    values above. `:where` keeps these at the specificity of the blocks they follow, so palette
    themes still win. */
 :root:where([data-dark-style="gray"]) {
   @variant dark {
-    --background: #1d1d20;
-    --surface-raised: #252528;
-    --card: #252528;
-    --popover: #29292d;
-    --message-surface: #2e2e33;
+    --background: #121212;
+    --surface-raised: #181818;
+    --card: #181818;
+    --popover: #1c1c1c;
+    --message-surface: #222222;
   }
 }
 
 :where([data-dark-style="gray"]) [data-app-sidebar] {
   @variant dark {
-    --background: #18181b;
-    --card: #18181b;
-    --muted: #202023;
-    --accent: #2a2b2f;
+    --background: #0e0e0e;
+    --card: #0e0e0e;
+    --muted: #151515;
+    --accent: #1e1e1e;
   }
 }
 

@@ -47,6 +47,8 @@ export function InferenceServerDialog({
   existingIds,
   fallbackOptions,
   existing,
+  initialDraft,
+  note,
 }: {
   readonly onClose: () => void;
   readonly environmentId: EnvironmentId;
@@ -58,11 +60,16 @@ export function InferenceServerDialog({
     readonly name: string;
   }>;
   readonly existing?: { readonly id: InferenceServerId; readonly config: InferenceServerConfig };
+  /** Prefills an add, such as a server copied from another machine. */
+  readonly initialDraft?: InferenceServerDraft;
+  readonly note?: string;
 }) {
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
   const secretSources = useSecretSources(environmentId);
   const [draft, setDraft] = useState<InferenceServerDraft>(
-    existing ? draftFromInferenceServer(existing.config) : EMPTY_INFERENCE_SERVER_DRAFT,
+    existing
+      ? draftFromInferenceServer(existing.config)
+      : (initialDraft ?? EMPTY_INFERENCE_SERVER_DRAFT),
   );
   const [keyValid, setKeyValid] = useState(true);
   const [submitted, setSubmitted] = useState(false);
@@ -101,6 +108,7 @@ export function InferenceServerDialog({
           <DialogDescription>
             An OpenAI-compatible model server that {environmentLabel} can reach. localhost means{" "}
             {environmentLabel} itself.
+            {note === undefined ? null : ` ${note}`}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>

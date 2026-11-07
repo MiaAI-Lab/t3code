@@ -6,6 +6,8 @@ import {
   EMPTY_INFERENCE_SERVER_DRAFT,
   inferenceServerFromDraft,
   inferenceServerIdFromName,
+  inferenceServerOffers,
+  inferenceServerOriginHost,
   inferenceServerRemovalPatch,
   normalizeInferenceServerBaseUrl,
 } from "./InferenceSettings.logic";
@@ -141,5 +143,49 @@ describe("inferenceServerRemovalPatch", () => {
       rtx: null,
       old: { baseUrl: "http://old/v1", apiKey: "", enabled: false },
     });
+  });
+});
+
+describe("inferenceServerOffers", () => {
+  const rtx = InferenceServerId.make("glm-rtx");
+  const spark = InferenceServerId.make("spark1");
+  const origin = {
+    [rtx]: { baseUrl: "http://localhost:8888/v1", apiKey: "", enabled: true },
+    [spark]: {
+      displayName: "Spark",
+      baseUrl: "http://spark1:8000/v1",
+      apiKey: "•••",
+      enabled: true,
+    },
+  };
+
+  it("offers the origin's servers at the address another machine reaches", () => {
+    expect(inferenceServerOffers({}, { servers: origin, host: "rtx" })).toEqual([
+      { id: rtx, name: "glm-rtx", baseUrl: "http://rtx:8888/v1", needsKey: false },
+      { id: spark, name: "Spark", baseUrl: "http://spark1:8000/v1", needsKey: true },
+    ]);
+  });
+
+  it("skips servers this machine has by id or by address", () => {
+    const current = {
+      [InferenceServerId.make("other")]: {
+        baseUrl: "http://rtx:8888/v1",
+        apiKey: "",
+        enabled: true,
+      },
+      [spark]: { baseUrl: "http://elsewhere/v1", apiKey: "", enabled: true },
+    };
+    expect(inferenceServerOffers(current, { servers: origin, host: "rtx" })).toEqual([]);
+  });
+
+  it("names the origin by its label, else by a LAN endpoint", () => {
+    expect(inferenceServerOriginHost("rtx")).toBe("rtx");
+    expect(
+      inferenceServerOriginHost("Zurih's desktop", [
+        { kind: "loopback", httpBaseUrl: "http://127.0.0.1:3773" },
+        { kind: "lan", httpBaseUrl: "http://192.168.1.122:3773" },
+      ]),
+    ).toBe("192.168.1.122");
+    expect(inferenceServerOriginHost("My PC")).toBeNull();
   });
 });

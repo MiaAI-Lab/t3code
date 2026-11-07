@@ -20,7 +20,7 @@ import {
   useUpdateEnvironmentSettings,
 } from "../../hooks/useSettings";
 import { useNowMinute } from "../../hooks/useNowMinute";
-import type { EnvironmentPresentation } from "../../state/environments";
+import { useEnvironments, type EnvironmentPresentation } from "../../state/environments";
 import { inferenceUsageAtom } from "../../state/inference";
 import { serverEnvironment } from "../../state/server";
 import { useEnvironmentSessionState } from "../../state/session";
@@ -53,8 +53,16 @@ import {
   inferenceServerDisplayName,
   inferenceServerRequestHealth,
   presentInferenceServers,
+  type InferenceServers,
 } from "@t3tools/client-runtime/state/inference-presentation";
-import { inferenceServerRemovalPatch } from "./InferenceSettings.logic";
+import {
+  EMPTY_INFERENCE_SERVER_DRAFT,
+  inferenceServerOffers,
+  inferenceServerOriginHost,
+  inferenceServerRemovalPatch,
+  type InferenceServerDraft,
+  type InferenceServerOffer,
+} from "./InferenceSettings.logic";
 import {
   classifyProviderEnvironmentAccess,
   resolveRemoteOperateAccess,
@@ -192,8 +200,21 @@ function EnvironmentInferenceServers({
     settings.textGenerationModelSelection,
   ]);
   const [dialog, setDialog] = useState<
-    null | { readonly mode: "add" } | { readonly mode: "edit"; readonly id: InferenceServerId }
+    | null
+    | {
+        readonly mode: "add";
+        readonly draft?: InferenceServerDraft;
+        readonly note?: string;
+      }
+    | { readonly mode: "edit"; readonly id: InferenceServerId }
   >(null);
+  const { environments } = useEnvironments();
+  const otherMachines = environments.filter(
+    (other) =>
+      other.environmentId !== environmentId &&
+      other.connection.phase === "connected" &&
+      other.serverConfig?.inferenceServers !== undefined,
+  );
   const entries = presentInferenceServers(servers);
   const editingConfig = dialog?.mode === "edit" ? (servers?.[dialog.id] ?? undefined) : undefined;
   const editing =
@@ -282,6 +303,29 @@ function EnvironmentInferenceServers({
             />
           ))
         )}
+        {readOnly
+          ? null
+          : otherMachines.map((origin) => (
+              <InferenceServerOffersFrom
+                key={origin.environmentId}
+                origin={origin}
+                current={servers}
+                targetLabel={environment.label}
+                onAdd={(offer) =>
+                  setDialog({
+                    mode: "add",
+                    draft: {
+                      ...EMPTY_INFERENCE_SERVER_DRAFT,
+                      name: offer.name,
+                      baseUrl: offer.baseUrl,
+                    },
+                    note: offer.needsKey
+                      ? `Copied from ${origin.label}; enter its API key again.`
+                      : `Copied from ${origin.label}.`,
+                  })
+                }
+              />
+            ))}
       </SettingsSection>
       {finding !== null && !readOnly && servers?.[finding] ? (
         <FindInferenceServerDialog
@@ -318,10 +362,49 @@ function EnvironmentInferenceServers({
             .filter(([id]) => dialog.mode === "add" || id !== dialog.id)
             .map(([id, config]) => ({ id, name: inferenceServerDisplayName(id, config) }))}
           {...(editing === undefined ? {} : { existing: editing })}
+          {...(dialog.mode === "add" && dialog.draft !== undefined
+            ? { initialDraft: dialog.draft }
+            : {})}
+          {...(dialog.mode === "add" && dialog.note !== undefined ? { note: dialog.note } : {})}
         />
       ) : null}
     </>
   );
+}
+
+/** Servers registered on another connected machine that this one lacks, each one click to add. */
+function InferenceServerOffersFrom({
+  origin,
+  current,
+  targetLabel,
+  onAdd,
+}: {
+  readonly origin: EnvironmentPresentation;
+  readonly current: InferenceServers | undefined;
+  readonly targetLabel: string;
+  readonly onAdd: (offer: InferenceServerOffer) => void;
+}) {
+  const originServers = useEnvironmentSettings(
+    origin.environmentId,
+    (settings) => settings.inferenceServers,
+  );
+  const offers = inferenceServerOffers(current, {
+    servers: originServers,
+    host: inferenceServerOriginHost(origin.label, origin.serverConfig?.directEndpoints),
+  });
+  return offers.map((offer) => (
+    <SettingsRow
+      key={offer.id}
+      title={`${offer.name} on ${origin.label}`}
+      description={`Use it from ${targetLabel} at ${offer.baseUrl}.`}
+      control={
+        <Button size="xs" variant="outline" onClick={() => onAdd(offer)}>
+          <PlusIcon className="size-3" aria-hidden />
+          Add here
+        </Button>
+      }
+    />
+  ));
 }
 
 function InferenceServerRow({

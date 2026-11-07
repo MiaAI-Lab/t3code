@@ -160,3 +160,72 @@ export function inferenceServerRemovalPatch(
   }
   return patch;
 }
+
+const LOOPBACK_HOSTS = new Set(["localhost", "0.0.0.0", "[::1]", "::1"]);
+
+function isLoopbackHost(hostname: string): boolean {
+  return LOOPBACK_HOSTS.has(hostname) || hostname.startsWith("127.");
+}
+
+/**
+ * The name another machine reaches `label`'s machine by: its label when that reads as a host
+ * name, else the address of its first LAN endpoint.
+ */
+export function inferenceServerOriginHost(
+  label: string,
+  directEndpoints: ReadonlyArray<{ readonly kind: string; readonly httpBaseUrl: string }> = [],
+): string | null {
+  if (/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9-]+)*$/i.test(label)) return label;
+  for (const endpoint of directEndpoints) {
+    try {
+      const host = new URL(endpoint.httpBaseUrl).hostname;
+      if (!isLoopbackHost(host)) return host;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+/** A server's address as another machine sees it: loopback names become the origin's host. */
+function shareInferenceServerBaseUrl(baseUrl: string, originHost: string | null): string {
+  if (originHost === null) return baseUrl;
+  try {
+    const url = new URL(baseUrl);
+    if (!isLoopbackHost(url.hostname)) return baseUrl;
+    url.hostname = originHost;
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return baseUrl;
+  }
+}
+
+export interface InferenceServerOffer {
+  readonly id: InferenceServerId;
+  readonly name: string;
+  readonly baseUrl: string;
+  /** The origin keeps a key this machine cannot copy, so it must be entered again. */
+  readonly needsKey: boolean;
+}
+
+/** Servers on another machine that this one lacks, at the address this one would use. */
+export function inferenceServerOffers(
+  current: InferenceServers | undefined,
+  origin: { readonly servers: InferenceServers | undefined; readonly host: string | null },
+): ReadonlyArray<InferenceServerOffer> {
+  const present = presentInferenceServers(current);
+  const ids = new Set(present.map(([id]) => id));
+  const urls = new Set(present.map(([, config]) => config.baseUrl));
+  const offers: InferenceServerOffer[] = [];
+  for (const [id, config] of presentInferenceServers(origin.servers)) {
+    const baseUrl = shareInferenceServerBaseUrl(config.baseUrl, origin.host);
+    if (ids.has(id) || urls.has(baseUrl)) continue;
+    offers.push({
+      id,
+      name: config.displayName ?? id,
+      baseUrl,
+      needsKey: typeof config.apiKey !== "string" || config.apiKey !== "",
+    });
+  }
+  return offers;
+}

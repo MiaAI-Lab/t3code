@@ -30,6 +30,14 @@ concurrent requests**. T3 Code checks each server and shows whether it is ready,
 serves with their context windows, and its current load when the server reports one. **Refresh**
 checks again.
 
+Each machine keeps its own list, because `localhost` means a different computer on each. To use a
+server you registered on one machine from another, such as a Spark added over SSH, select that
+machine at the top of **Settings → Inference**: servers registered on your other connected machines
+are listed with **Add here**, with `localhost` already replaced by the name of the machine that
+runs them. A key cannot be copied between machines, so enter it again if the server uses one.
+Machines added over SSH from the desktop app run the app's own server; if a machine shows that its
+server has no inference servers, restart the desktop app to install it there.
+
 When a server stops answering, its row offers **Check again**, **Find server**, and **Change
 address**, and a thread whose agent is linked to it says so above the message box. **Find
 server** searches that server's machine and marks the address serving the same model; picking it

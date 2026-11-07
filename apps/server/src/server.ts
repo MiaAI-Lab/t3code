@@ -115,6 +115,7 @@ import * as ProviderUsageLimitsIngestion from "./provider/ProviderUsageLimitsIng
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as InferenceAdmission from "./inference/InferenceAdmission.ts";
 import * as InferenceGateway from "./inference/InferenceGateway.ts";
+import * as InferenceRouting from "./inference/InferenceRouting.ts";
 import * as InferenceGatewayAccess from "./inference/InferenceGatewayAccess.ts";
 import * as InferenceServerRegistry from "./inference/InferenceServerRegistry.ts";
 import * as InferenceRequests from "./persistence/InferenceRequests.ts";
@@ -806,7 +807,7 @@ const layerMakeRoutes = Layer.mergeAll(
   ),
   InferenceGateway.routeLayer.pipe(
     Layer.provide(InferenceGateway.layer),
-    Layer.provide(InferenceAdmission.layer),
+    Layer.provide(Layer.mergeAll(InferenceAdmission.layer, InferenceRouting.layer)),
   ),
   // Follows delegated tasks running in linked environments, including after a restart.
   Layer.effectDiscard(

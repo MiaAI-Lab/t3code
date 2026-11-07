@@ -7,9 +7,11 @@ import {
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as Digest from "effect/crypto/Digest";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -19,6 +21,7 @@ import {
   FetchHttpClient,
   HttpClient,
   HttpClientRequest,
+  type HttpClientResponse,
   HttpRouter,
   type HttpServerRequest,
   HttpServerResponse,
@@ -30,6 +33,8 @@ import * as InferenceRequests from "../persistence/InferenceRequests.ts";
 import { requireSettingsSecret } from "../secrets/settingsSecretValue.ts";
 import * as Settings from "../serverSettings.ts";
 import * as InferenceAdmission from "./InferenceAdmission.ts";
+import * as InferenceRouting from "./InferenceRouting.ts";
+import { isPreDispatchFailure, PRIMARY_WAIT_MS } from "./InferenceRouting.ts";
 import { parseBaseUrl } from "./InferenceServerRegistry.ts";
 import { makeUsageMeter } from "./inferenceUsage.ts";
 
@@ -89,20 +94,83 @@ const readBounded = (request: HttpServerRequest.HttpServerRequest) =>
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+/** Sorted keys, so equal content always serializes to equal bytes. */
+const canonicalJson = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (isRecord(value)) {
+    const entries = Object.keys(value)
+      .toSorted()
+      .filter((key) => value[key] !== undefined)
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`);
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+};
+
+/** The part of a request a server can cache across turns: system text and tools. */
+function staticPrefixOf(protocol: InferenceApiProtocol, body: Record<string, unknown>) {
+  switch (protocol) {
+    case "chat-completions": {
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      const end = messages.findIndex(
+        (message) =>
+          !isRecord(message) || (message.role !== "system" && message.role !== "developer"),
+      );
+      return { system: end === -1 ? messages : messages.slice(0, end), tools: body.tools ?? null };
+    }
+    case "responses":
+      return { instructions: body.instructions ?? null, tools: body.tools ?? null };
+    case "messages":
+      return { system: body.system ?? null, tools: body.tools ?? null };
+    case "completions":
+      return undefined;
+  }
+}
+
+const tokenCount = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+
 /** Model and stream flag for accounting, plus the body to send: OpenAI streams ask for usage. */
 function prepareBody(protocol: InferenceApiProtocol, raw: Uint8Array) {
+  // A cheap upper bound: about four bytes per token.
+  const promptEstimate = Math.ceil(raw.length / 4);
+  const unparsed = {
+    model: "unknown",
+    streaming: false,
+    body: raw,
+    staticPrefix: undefined,
+    previousResponseId: undefined,
+    contextTokens: promptEstimate,
+  };
   let parsed: unknown;
   try {
     parsed = JSON.parse(Buffer.from(raw).toString("utf8"));
   } catch {
-    return { model: "unknown", streaming: false, body: raw };
+    return unparsed;
   }
-  if (!isRecord(parsed)) return { model: "unknown", streaming: false, body: raw };
+  if (!isRecord(parsed)) return unparsed;
   const model =
     typeof parsed.model === "string" && parsed.model.trim() !== ""
       ? parsed.model.trim()
       : "unknown";
   const streaming = parsed.stream === true;
+  const prefix = staticPrefixOf(protocol, parsed);
+  const shape = {
+    model,
+    streaming,
+    staticPrefix: prefix === undefined ? undefined : canonicalJson(prefix),
+    previousResponseId:
+      protocol === "responses" && typeof parsed.previous_response_id === "string"
+        ? parsed.previous_response_id
+        : undefined,
+    contextTokens:
+      promptEstimate +
+      Math.max(
+        tokenCount(parsed.max_tokens),
+        tokenCount(parsed.max_completion_tokens),
+        tokenCount(parsed.max_output_tokens),
+      ),
+  };
   const options = parsed.stream_options;
   if (
     streaming &&
@@ -113,9 +181,9 @@ function prepareBody(protocol: InferenceApiProtocol, raw: Uint8Array) {
       ...parsed,
       stream_options: { ...(isRecord(options) ? options : {}), include_usage: true },
     };
-    return { model, streaming, body: new TextEncoder().encode(JSON.stringify(body)) };
+    return { ...shape, body: new TextEncoder().encode(JSON.stringify(body)) };
   }
-  return { model, streaming, body: raw };
+  return { ...shape, body: raw };
 }
 
 export class InferenceGateway extends Context.Service<
@@ -135,6 +203,8 @@ const make = Effect.gen(function* () {
   const admission = yield* InferenceAdmission.InferenceAdmission;
   const requestLog = yield* InferenceRequests.InferenceRequestLog;
   const random = yield* SecureRandom.SecureRandom;
+  const digest = yield* Digest.Digest;
+  const routing = yield* InferenceRouting.InferenceRouting;
   const threads = yield* Effect.serviceOption(ThreadManagementService.ThreadManagementService);
   // Redirects are refused, not followed, so the upstream key never reaches another origin.
   const client = (yield* HttpClient.HttpClient).pipe(
@@ -292,6 +362,13 @@ const make = Effect.gen(function* () {
         : errorResponse(400, "invalid_request_error", "Could not read the request body.");
     }
     const prepared = prepareBody(protocol!, raw.success);
+    const staticPrefixHash =
+      prepared.staticPrefix === undefined
+        ? null
+        : (yield* digest.digestHex(
+            Digest.sha256,
+            new TextEncoder().encode(prepared.staticPrefix),
+          )).slice(0, 16);
     const { purpose, runId, parentRunId } = yield* attribute(caller);
     const requestId = yield* random.uuidV4();
     const meter = makeUsageMeter(protocol!, prepared.streaming);
@@ -300,6 +377,10 @@ const make = Effect.gen(function* () {
       dispatchedAt?: number;
       firstContentAt?: number;
     }>({});
+    const served = yield* Ref.make<{
+      serverId: InferenceServerId;
+      fallbackFrom: InferenceServerId | null;
+    }>({ serverId, fallbackFrom: null });
     // The lease: the admission slot and the upstream fetch live in `lifetime`. The first terminal
     // writer records the request and closes it, which frees the slot and aborts the fetch; any
     // later writer is a no-op.
@@ -309,18 +390,22 @@ const make = Effect.gen(function* () {
       if (yield* Ref.getAndSet(settled, true)) return;
       const completedAt = yield* Clock.currentTimeMillis;
       const marks = yield* Ref.get(milestones);
+      const target = yield* Ref.get(served);
       yield* Scope.close(lifetime, Exit.void);
+      const usage = meter.finish();
+      const responseId = meter.responseId();
+      if (responseId !== undefined) yield* routing.rememberResponse(responseId, target.serverId);
       yield* requestLog.record({
         requestId,
-        serverId,
+        serverId: target.serverId,
         model: prepared.model,
         threadId: caller.threadId ?? null,
         runId,
         parentRunId,
         purpose,
         status,
-        fallbackFrom: null,
-        staticPrefixHash: null,
+        fallbackFrom: target.fallbackFrom,
+        staticPrefixHash,
         receivedAt,
         queueWaitMs: marks.admittedAt === undefined ? null : marks.admittedAt - receivedAt,
         ttftMs:
@@ -332,35 +417,88 @@ const make = Effect.gen(function* () {
             ? null
             : completedAt - marks.firstContentAt,
         durationMs: completedAt - receivedAt,
-        ...meter.finish(),
+        ...usage,
       });
     }, Effect.uninterruptible);
     // The request scope closes even when the body is never read, e.g. the client left before it.
     yield* Scope.addFinalizer(yield* Scope.Scope, finish("cancelled"));
 
-    const admitted = yield* admission
-      .admit({ serverId, purpose, threadId: caller.threadId })
-      .pipe(Scope.provide(lifetime), Effect.result);
-    if (admitted._tag === "Failure") {
+    const plan = yield* routing
+      .plan({
+        primary: serverId,
+        threadId: caller.threadId,
+        protocol: protocol!,
+        model: prepared.model,
+        previousResponseId: prepared.previousResponseId,
+        contextTokens: prepared.contextTokens,
+      })
+      .pipe(Effect.result);
+    if (plan._tag === "Failure") {
       yield* finish("rejected");
-      return errorResponse(503, "overloaded_error", admitted.failure.message);
+      return plan.failure.reason === "not_registered"
+        ? errorResponse(404, "not_found", plan.failure.message)
+        : errorResponse(503, "server_unavailable", plan.failure.message);
     }
-    const dispatchedAt = yield* Clock.currentTimeMillis;
-    yield* Ref.set(milestones, { admittedAt: dispatchedAt, dispatchedAt });
 
-    const response = yield* HttpClient.withScope(client)
-      .execute(
-        HttpClientRequest.post(upstreamUrl).pipe(
-          HttpClientRequest.setHeaders(upstreamHeaders(request, apiKey.value)),
-          HttpClientRequest.bodyUint8Array(prepared.body, "application/json"),
-        ),
-      )
-      .pipe(Scope.provide(lifetime), Effect.result);
-    if (response._tag === "Failure") {
+    // Only failures before the request reaches a server move it to the next target.
+    let upstream: HttpClientResponse.HttpClientResponse | undefined;
+    for (const [index, target] of plan.success.entries()) {
+      const next = plan.success[index + 1];
+      if (next !== undefined && !target.ready) continue;
+      yield* Ref.set(served, { serverId: target.serverId, fallbackFrom: target.fallbackFrom });
+      const attempt = yield* Scope.fork(lifetime);
+      const ticket = { serverId: target.serverId, purpose, threadId: caller.threadId };
+      const admitted = yield* Effect.gen(function* () {
+        const waiting = yield* admission
+          .admit(ticket)
+          .pipe(Scope.provide(attempt), Effect.forkChild({ startImmediately: true }));
+        if (next === undefined)
+          return yield* Fiber.join(waiting).pipe(Effect.as("admitted" as const));
+        // Spill rather than wait: past the bound, move on if the next server has a free slot.
+        const early = yield* Fiber.join(waiting).pipe(Effect.timeoutOption(PRIMARY_WAIT_MS));
+        if (Option.isSome(early)) return "admitted" as const;
+        if (yield* admission.available(next.serverId)) {
+          yield* Fiber.interrupt(waiting);
+          return "spill" as const;
+        }
+        return yield* Fiber.join(waiting).pipe(Effect.as("admitted" as const));
+      }).pipe(Effect.result);
+      if (admitted._tag === "Failure") {
+        yield* finish("rejected");
+        return errorResponse(503, "overloaded_error", admitted.failure.message);
+      }
+      if (admitted.success === "spill") {
+        yield* Scope.close(attempt, Exit.void);
+        continue;
+      }
+      const dispatchedAt = yield* Clock.currentTimeMillis;
+      yield* Ref.set(milestones, { admittedAt: dispatchedAt, dispatchedAt });
+
+      const response = yield* HttpClient.withScope(client)
+        .execute(
+          HttpClientRequest.post(`${target.base}/${route}`).pipe(
+            HttpClientRequest.setHeaders(upstreamHeaders(request, target.apiKey)),
+            HttpClientRequest.bodyUint8Array(prepared.body, "application/json"),
+          ),
+        )
+        .pipe(Scope.provide(attempt), Effect.result);
+      if (response._tag === "Success") {
+        upstream = response.success;
+        if (caller.threadId !== undefined) {
+          yield* routing.rememberThread(caller.threadId, target.serverId);
+        }
+        break;
+      }
+      if (next === undefined || !isPreDispatchFailure(response.failure)) {
+        yield* finish("failed");
+        return errorResponse(502, "upstream_error", "Could not reach the inference server.");
+      }
+      yield* Scope.close(attempt, Exit.void);
+    }
+    if (upstream === undefined) {
       yield* finish("failed");
       return errorResponse(502, "upstream_error", "Could not reach the inference server.");
     }
-    const upstream = response.success;
     if (upstream.status >= 300 && upstream.status < 400) {
       yield* finish("failed");
       return errorResponse(502, "upstream_error", "The inference server answered with a redirect.");

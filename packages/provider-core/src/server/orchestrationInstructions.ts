@@ -29,6 +29,12 @@ export const T3_CODE_ORCHESTRATION_INSTRUCTIONS = `
 ${T3_CODE_ORCHESTRATION_SECTIONS.join("\n\n")}
 `;
 
+/** The lean tool profile has no HTML render or preview tools, so it skips the visuals section. */
+export const T3_CODE_LEAN_ORCHESTRATION_INSTRUCTIONS = `
+
+${T3_CODE_ORCHESTRATION_SECTIONS.filter((section) => !section.startsWith("### Visuals")).join("\n\n")}
+`;
+
 export const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `
 
 ## T3 Code browser

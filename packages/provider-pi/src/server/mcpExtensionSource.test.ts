@@ -248,6 +248,11 @@ describe("Pi MCP tool exposure", () => {
       prefixed,
     );
     assert.deepEqual(bridge.getActiveTools(), ["read", "tool_search", ...prefixed]);
+    const prompt = await bridge.handlers.get("before_agent_start")!(
+      { systemPrompt: "Pi system prompt" },
+      gatewayContext,
+    );
+    assert.equal((prompt?.systemPrompt ?? "").includes("html_preview"), toolProfile !== "lean");
   });
 
   it.each(["legacy Pi", "disabled tool search"])(

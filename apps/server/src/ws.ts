@@ -2468,6 +2468,8 @@ export const layerWsRpc = (
               }),
             ),
           ),
+        // Replaced by the inference server registry.
+        [WS_METHODS.serverRefreshInferenceServers]: () => Effect.succeed({ inferenceServers: [] }),
         [WS_METHODS.serverRefreshProviders]:
           /* Request instrumentation already owns the span; keep this helper in that context. */
           Effect.fnUntraced(function* (input) {

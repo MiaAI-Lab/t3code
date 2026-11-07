@@ -1,3 +1,4 @@
+import { InferenceServerId, InferenceServerSnapshot } from "./inference.ts";
 import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
@@ -500,6 +501,7 @@ export const WS_METHODS = {
   serverGetConfig: "server.getConfig",
   serverGetNpmRelease: "server.getNpmRelease",
   serverRefreshProviders: "server.refreshProviders",
+  serverRefreshInferenceServers: "server.refreshInferenceServers",
   serverUpdateProvider: "server.updateProvider",
   serverUpdateServer: "server.updateServer",
   serverUpdateServerWithProgress: "server.updateServerWithProgress",
@@ -637,6 +639,12 @@ const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
   payload: Schema.Struct({}),
   success: ServerConfig,
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+const WsServerRefreshInferenceServersRpc = Rpc.make(WS_METHODS.serverRefreshInferenceServers, {
+  payload: Schema.Struct({ id: Schema.optional(InferenceServerId) }),
+  success: Schema.Struct({ inferenceServers: Schema.Array(InferenceServerSnapshot) }),
+  error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
 });
 
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
@@ -2004,6 +2012,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
+  WsServerRefreshInferenceServersRpc,
   WsServerUpdateProviderRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,

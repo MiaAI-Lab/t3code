@@ -70,7 +70,9 @@ function setup(input: {
           getInstance: (id) =>
             Effect.succeed(instances.find((candidate) => candidate.instanceId === id)),
         }),
-        Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({}),
+        Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
+          resolveLink: () => Effect.die("unused"),
+        }),
         ServerSettings.ServerSettingsService.layerTest(input.settings ?? {}),
       ),
     ),
@@ -151,7 +153,7 @@ describe("TextGeneration local-first routing", () => {
     });
     return Effect.gen(function* () {
       const error = yield* Effect.flip(fixture.commit(builtIn));
-      expect(error.detail).toContain("No local model is ready");
+      expect(error.message).toContain("No local model is ready");
       expect(fixture.calls).toEqual([]);
     });
   });

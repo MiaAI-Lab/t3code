@@ -1,4 +1,9 @@
-import { type InferenceServerId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  type InferenceServerConfig,
+  type InferenceServerId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Digest from "effect/crypto/Digest";
@@ -22,7 +27,13 @@ export interface McpCredentialRequest {
   readonly capabilities?: ReadonlySet<McpInvocationContext.McpCapability>;
   readonly subagent?: boolean;
   /** Also mint a gateway credential bound to this server, revoked with the MCP one. */
-  readonly inferenceServerId?: InferenceServerId;
+  readonly inferenceServer?: PinnedInferenceServer;
+}
+
+/** A server's settings when a credential was issued; the gateway keeps routing it there. */
+export interface PinnedInferenceServer {
+  readonly id: InferenceServerId;
+  readonly config: InferenceServerConfig;
 }
 
 /**
@@ -31,6 +42,8 @@ export interface McpCredentialRequest {
  */
 export interface InferenceCaller {
   readonly serverId: InferenceServerId;
+  /** Edits, relinks, and disabling never move a live credential; new sessions get new ones. */
+  readonly pinned: InferenceServerConfig;
   readonly threadId?: ThreadId;
   readonly providerSessionId?: string;
   readonly providerInstanceId?: ProviderInstanceId;
@@ -52,7 +65,7 @@ export interface McpSessionRegistryShape {
    * it is for that instance's long-lived harness process and does not expire on its own.
    */
   readonly issueBackgroundInference: (
-    serverId: InferenceServerId,
+    server: PinnedInferenceServer,
     providerInstanceId?: ProviderInstanceId,
   ) => Effect.Effect<McpProviderSession.InferenceGatewayCredential, never, Scope.Scope>;
   /** See `InferenceGatewayAccess.attributeSessions`. */
@@ -183,13 +196,15 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       };
       yield* store({ kind: "mcp", tokenHash, scope, lastAliveAt: issuedAt });
       let inferenceGateway: McpProviderSession.InferenceGatewayCredential | undefined;
-      if (request.inferenceServerId !== undefined) {
+      const server = request.inferenceServer;
+      if (server !== undefined) {
         const minted = yield* mintToken;
         yield* store({
           kind: "inference",
           tokenHash: minted.tokenHash,
           caller: {
-            serverId: request.inferenceServerId,
+            serverId: server.id,
+            pinned: server.config,
             threadId: scope.thread.threadId,
             providerSessionId,
             providerInstanceId: scope.thread.providerInstanceId,
@@ -197,8 +212,8 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           lastAliveAt: issuedAt,
         });
         inferenceGateway = {
-          serverId: request.inferenceServerId,
-          baseUrl: gatewayBaseUrl(request.inferenceServerId),
+          serverId: server.id,
+          baseUrl: gatewayBaseUrl(server.id),
           token: minted.rawToken,
         };
       }
@@ -257,7 +272,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
 
   const issueBackgroundInference: McpSessionRegistryShape["issueBackgroundInference"] = Effect.fn(
     "McpSessionRegistry.issueBackgroundInference",
-  )(function* (serverId, providerInstanceId) {
+  )(function* ({ id: serverId, config: pinned }, providerInstanceId) {
     const issuedAt = yield* currentTimeMillis;
     const minted = yield* Effect.acquireRelease(mintToken, ({ tokenHash }) =>
       SynchronizedRef.update(state, ({ records }) => {
@@ -271,8 +286,8 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       tokenHash: minted.tokenHash,
       lastAliveAt: issuedAt,
       ...(providerInstanceId === undefined
-        ? { caller: { serverId }, expiresAt: issuedAt + BACKGROUND_INFERENCE_TTL_MS }
-        : { caller: { serverId, providerInstanceId } }),
+        ? { caller: { serverId, pinned }, expiresAt: issuedAt + BACKGROUND_INFERENCE_TTL_MS }
+        : { caller: { serverId, pinned, providerInstanceId } }),
     });
     return { serverId, baseUrl: gatewayBaseUrl(serverId), token: minted.rawToken };
   });

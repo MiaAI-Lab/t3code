@@ -19,6 +19,7 @@ const makeFakeHttpServer = (hostname: string, port = 43123) =>
     serve: (() => Effect.void) as HttpServer.HttpServer["Service"]["serve"],
   });
 const fakeHttpServer = makeFakeHttpServer("127.0.0.1");
+const pinned = { baseUrl: "http://localhost:8888/v1", apiKey: "", enabled: true };
 const fakeEnvironment = ServerEnvironment.ServerEnvironment.of({
   getEnvironmentId: Effect.succeed(environmentId),
   getDescriptor: Effect.die("unused"),
@@ -234,7 +235,7 @@ it.effect("keeps inference credentials apart from MCP and revokes them with the 
       threadId,
       providerInstanceId: ProviderInstanceId.make("pi"),
       capabilities: new Set(),
-      inferenceServerId: serverId,
+      inferenceServer: { id: serverId, config: pinned },
     });
     const gateway = issued.config.inferenceGateway;
     expect(gateway?.baseUrl).toBe("http://127.0.0.1:43123/inference/rtx/v1");
@@ -246,6 +247,7 @@ it.effect("keeps inference credentials apart from MCP and revokes them with the 
     expect(yield* registry.resolveInference(mcpToken)).toBeUndefined();
     expect(yield* registry.resolveInference(inferenceToken)).toEqual({
       serverId,
+      pinned,
       threadId,
       providerSessionId: issued.config.providerSessionId,
       providerInstanceId: ProviderInstanceId.make("pi"),
@@ -257,7 +259,7 @@ it.effect("keeps inference credentials apart from MCP and revokes them with the 
     const reissued = yield* registry.issue({
       threadId,
       providerInstanceId: ProviderInstanceId.make("pi"),
-      inferenceServerId: serverId,
+      inferenceServer: { id: serverId, config: pinned },
     });
     yield* registry.revokeThread(threadId);
     expect(
@@ -285,26 +287,27 @@ it.effect(
       const serverId = InferenceServerId.make("rtx");
       const scope = yield* Scope.make();
       const background = yield* registry
-        .issueBackgroundInference(serverId)
+        .issueBackgroundInference({ id: serverId, config: pinned })
         .pipe(Scope.provide(scope));
       expect(background.baseUrl).toBe("http://127.0.0.1:43123/inference/rtx/v1");
       expect(yield* registry.resolve(background.token)).toBeUndefined();
-      expect(yield* registry.resolveInference(background.token)).toEqual({ serverId });
+      expect(yield* registry.resolveInference(background.token)).toEqual({ serverId, pinned });
       yield* Scope.close(scope, Exit.void);
       expect(yield* registry.resolveInference(background.token)).toBeUndefined();
 
       const lingering = yield* registry
-        .issueBackgroundInference(serverId)
+        .issueBackgroundInference({ id: serverId, config: pinned })
         .pipe(Scope.provide(yield* Scope.make()));
       const instanceId = ProviderInstanceId.make("opencode");
       const processScope = yield* Scope.make();
       const instance = yield* registry
-        .issueBackgroundInference(serverId, instanceId)
+        .issueBackgroundInference({ id: serverId, config: pinned }, instanceId)
         .pipe(Scope.provide(processScope));
       timestamp += McpSessionRegistry.BACKGROUND_INFERENCE_TTL_MS + 1;
       expect(yield* registry.resolveInference(lingering.token)).toBeUndefined();
       expect(yield* registry.resolveInference(instance.token)).toEqual({
         serverId,
+        pinned,
         providerInstanceId: instanceId,
       });
       yield* Scope.close(processScope, Exit.void);

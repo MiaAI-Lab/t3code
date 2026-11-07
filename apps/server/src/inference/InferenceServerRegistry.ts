@@ -54,6 +54,12 @@ type Endpoint =
   | { readonly base: string; readonly origin: string; readonly display: string }
   | { readonly error: string; readonly display: string };
 
+/** Whether a credential pinned to `pinned` still routes where `current` would. */
+export const routesAlike = (pinned: InferenceServerConfig, current: InferenceServerConfig) =>
+  pinned.baseUrl === current.baseUrl &&
+  JSON.stringify(pinned.apiKey) === JSON.stringify(current.apiKey) &&
+  pinned.fallbackServerId === current.fallbackServerId;
+
 export function parseBaseUrl(raw: string): Endpoint {
   let url: URL;
   try {

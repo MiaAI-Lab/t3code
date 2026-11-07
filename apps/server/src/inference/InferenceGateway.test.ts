@@ -187,18 +187,8 @@ const makeHarness = Effect.fnUntraced(function* (threads: Layer.Layer<never> = L
     ),
   );
 
-  const tokens: Record<string, McpSessionRegistry.InferenceCaller> = {
-    "thread-token": { serverId: InferenceServerId.make("rtx"), threadId: thread },
-    "background-token": { serverId: InferenceServerId.make("rtx") },
-    "hang-token": { serverId: InferenceServerId.make("hang"), threadId: thread },
-    "redirect-token": { serverId: InferenceServerId.make("redirect") },
-    "dead-token": { serverId: InferenceServerId.make("dead"), threadId: thread },
-    "opencode-token": { serverId: rtx, providerInstanceId: ProviderInstanceId.make("opencode") },
-    "other-instance-token": {
-      serverId: rtx,
-      providerInstanceId: ProviderInstanceId.make("opencode_work"),
-    },
-  };
+  // Filled once the server's origin is known; credentials pin their server's settings at issue.
+  const tokens: Record<string, McpSessionRegistry.InferenceCaller> = {};
   const services = yield* Layer.build(
     HttpRouter.serve(Layer.mergeAll(InferenceGateway.routeLayer, upstream), {
       disableListenLog: true,
@@ -247,22 +237,38 @@ const makeHarness = Effect.fnUntraced(function* (threads: Layer.Layer<never> = L
     apiKey: "upstream-secret",
     enabled: true,
   });
-  yield* settings.updateSettings({
-    inferenceServers: {
-      [InferenceServerId.make("rtx")]: server("up"),
-      [InferenceServerId.make("hang")]: server("hang"),
-      [InferenceServerId.make("redirect")]: server("redirect"),
-      [InferenceServerId.make("dead")]: {
-        baseUrl: `http://127.0.0.1:${yield* closedPort}/v1`,
-        apiKey: "dead-secret",
-        enabled: true,
-        fallbackServerId: InferenceServerId.make("rtx"),
-      },
+  const servers = {
+    [InferenceServerId.make("rtx")]: server("up"),
+    [InferenceServerId.make("hang")]: server("hang"),
+    [InferenceServerId.make("redirect")]: server("redirect"),
+    [InferenceServerId.make("dead")]: {
+      baseUrl: `http://127.0.0.1:${yield* closedPort}/v1`,
+      apiKey: "dead-secret",
+      enabled: true,
+      fallbackServerId: InferenceServerId.make("rtx"),
+    },
+  };
+  yield* settings.updateSettings({ inferenceServers: servers });
+  const caller = (id: string, threadId?: ThreadId) => ({
+    serverId: InferenceServerId.make(id),
+    pinned: servers[InferenceServerId.make(id)]!,
+    ...(threadId === undefined ? {} : { threadId }),
+  });
+  Object.assign(tokens, {
+    "thread-token": caller("rtx", thread),
+    "background-token": caller("rtx"),
+    "hang-token": caller("hang", thread),
+    "redirect-token": caller("redirect"),
+    "dead-token": caller("dead", thread),
+    "opencode-token": { ...caller("rtx"), providerInstanceId: ProviderInstanceId.make("opencode") },
+    "other-instance-token": {
+      ...caller("rtx"),
+      providerInstanceId: ProviderInstanceId.make("opencode_work"),
     },
   });
   const call = (path: string, init: RequestInit = {}) =>
     Effect.promise(() => fetch(`${origin}/inference/${path}`, init));
-  return { call, seen, records, hangStarted };
+  return { call, seen, records, hangStarted, settings };
 });
 
 const post = (token: string, body: unknown, headers: Record<string, string> = {}) => ({
@@ -389,6 +395,32 @@ it.live("refuses unknown credentials, other servers, and routes off the allowlis
     expect(models.status).toBe(200);
     expect((yield* Queue.take(seen)).url).toBe("/up/v1/models");
   }),
+);
+
+it.live(
+  "keeps a live credential on the URL it was issued for after its server moves or is off",
+  () =>
+    Effect.gen(function* () {
+      const { call, seen, settings } = yield* makeHarness();
+      const current = yield* settings.getSettings;
+      yield* settings.updateSettings({
+        inferenceServers: {
+          ...current.inferenceServers,
+          [rtx]: {
+            ...current.inferenceServers[rtx]!,
+            baseUrl: "http://moved.test/v1",
+            enabled: false,
+          },
+        },
+      });
+      const response = yield* call(
+        "rtx/v1/chat/completions",
+        post("thread-token", { model: "GLM-5.3-Flash", stream: true, messages: [] }),
+      );
+      expect(response.status).toBe(200);
+      yield* Effect.promise(() => response.text());
+      expect((yield* Queue.take(seen)).url).toBe("/up/v1/chat/completions");
+    }),
 );
 
 it.live("serves a refused primary's request from its fallback over real sockets", () =>
@@ -604,6 +636,12 @@ const makeLifecycle = Effect.fnUntraced(function* (options: LifecycleOptions = {
     }),
   );
 
+  const rtxConfig = {
+    baseUrl: "http://rtx.test/v1",
+    apiKey: "rtx-key",
+    enabled: true,
+    ...(options.fallback === true ? { fallbackServerId: spark } : {}),
+  };
   const gateway = yield* Layer.build(
     InferenceGateway.layer.pipe(
       Layer.provide(InferenceRouting.layer),
@@ -611,12 +649,7 @@ const makeLifecycle = Effect.fnUntraced(function* (options: LifecycleOptions = {
         Layer.succeed(HttpClient.HttpClient, upstream),
         ServerSettings.layerTest({
           inferenceServers: {
-            [rtx]: {
-              baseUrl: "http://rtx.test/v1",
-              apiKey: "rtx-key",
-              enabled: true,
-              ...(options.fallback === true ? { fallbackServerId: spark } : {}),
-            },
+            [rtx]: rtxConfig,
             [spark]: { baseUrl: "http://spark1.test/v1", apiKey: "spark-key", enabled: true },
           },
         }),
@@ -641,7 +674,7 @@ const makeLifecycle = Effect.fnUntraced(function* (options: LifecycleOptions = {
         }),
         Layer.mock(McpSessionRegistry.McpSessionRegistry)({
           resolveInference: () =>
-            Effect.succeed({ serverId: InferenceServerId.make("rtx"), threadId: thread }),
+            Effect.succeed({ serverId: rtx, pinned: rtxConfig, threadId: thread }),
         }),
         Layer.mock(SecretResolver.SecretResolver)({}),
       ]),

@@ -951,6 +951,45 @@ describe("CodexAdapterV2 process exit", () => {
   });
 });
 
+describe("CodexAdapterV2 sessions", () => {
+  it.effect(
+    "a linked instance opens one session per thread, so each keeps its gateway routing",
+    () =>
+      Effect.gen(function* () {
+        const sharesSessions = (linkedToInferenceServer: boolean) =>
+          Effect.gen(function* () {
+            const adapter = yield* CodexAdapterV2.makeCodexAdapterV2({
+              instanceId: CodexAdapterV2.CODEX_DEFAULT_INSTANCE_ID,
+              settings: DEFAULT_CODEX_SETTINGS,
+              environment: {},
+              linkedToInferenceServer,
+              clientFactory: { open: () => Effect.die("unused") },
+              digest: yield* Digest.Digest,
+              fileSystem: yield* FileSystem.FileSystem,
+              idAllocator: yield* IdAllocator.IdAllocatorV2,
+              serverConfig: yield* ProviderReplayHarness.makeReplayServerConfig("linked").pipe(
+                Effect.orDie,
+              ),
+            });
+            const capabilities = yield* adapter.getCapabilities();
+            return capabilities.sessions.supportsMultipleProviderThreadsPerSession;
+          });
+        assert.isTrue(yield* sharesSessions(false));
+        assert.isFalse(yield* sharesSessions(true));
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
+        ),
+      ),
+  );
+});
+
 describe("CodexAdapterV2 session initialize", () => {
   const openReplaySession = (
     transcript: CodexReplay.CodexAppServerReplayTranscript,

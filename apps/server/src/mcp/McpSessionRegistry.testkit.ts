@@ -21,7 +21,7 @@ export const layer = Layer.succeed(
       }),
     resolve: () => Effect.undefined,
     resolveInference: () => Effect.undefined,
-    issueBackgroundInference: (serverId) =>
+    issueBackgroundInference: ({ id: serverId }) =>
       Effect.succeed({
         serverId,
         baseUrl: `http://127.0.0.1/inference/${serverId}/v1`,

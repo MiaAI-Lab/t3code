@@ -57,6 +57,12 @@ const routing = (
 
 const request: InferenceRouting.RouteRequest = {
   primary: rtx,
+  pinned: {
+    baseUrl: "http://rtx.test/v1",
+    apiKey: "rtx-key",
+    enabled: true,
+    fallbackServerId: spark,
+  },
   protocol: "chat-completions",
   model: "m",
   contextTokens: 1_000,
@@ -88,6 +94,29 @@ it.effect("offers the fallback only with its own endpoint and key, after the pri
       },
     ]);
   }).pipe(Effect.provide(routing())),
+);
+
+it.effect(
+  "keeps a credential on its pinned endpoint and key after its server moves or is off",
+  () =>
+    Effect.gen(function* () {
+      const service = yield* InferenceRouting.InferenceRouting;
+      const [primary] = yield* service.plan(request);
+      // The registry's unreachable status is about the moved URL, not the pinned one.
+      expect(primary).toEqual({
+        serverId: rtx,
+        base: "http://rtx.test/v1",
+        apiKey: "rtx-key",
+        ready: true,
+        fallbackFrom: null,
+      });
+    }).pipe(
+      Effect.provide(
+        routing([snapshotOf(rtx, { status: "unreachable" }), snapshotOf(spark)], {
+          [rtx]: { baseUrl: "http://moved.test/v1", apiKey: "new-key", enabled: false },
+        }),
+      ),
+    ),
 );
 
 it.effect.each([

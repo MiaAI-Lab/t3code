@@ -30,7 +30,8 @@ Then link a provider instance to a server with the **Inference server** setting 
 **Settings → Providers**. A linked instance counts as local while its server is enabled, and the
 model picker shows the server's name and readiness next to the provider, such as `Pi · rtx ·
 Ready`. T3 Code also caps the context window it assumes for the instance at what the server
-actually serves.
+actually serves. Changing the link, or a server's URL, key or enabled switch, applies to sessions
+that start afterwards; a running session stays on the server and URL it started with until it ends.
 
 ### Pi on a registered server
 

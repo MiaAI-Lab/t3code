@@ -1,13 +1,17 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import { ProviderInstanceId, type ServerProviderModel } from "@t3tools/contracts";
 import * as InferenceGateway from "@t3tools/provider-core/server/inferenceGateway";
 import type { McpProviderSessionConfig } from "@t3tools/provider-core/server/mcpSession";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import { expect } from "vite-plus/test";
 
 import {
   CODEX_GATEWAY_TOKEN_ENV,
   codexGatewayLaunch,
+  codexModelCatalog,
   makeCodexGatewaySource,
   withCodexGatewayStatus,
 } from "./codexGateway.ts";
@@ -15,7 +19,15 @@ import {
 const server: InferenceGateway.ManagedInferenceServer = {
   serverId: "rtx",
   displayName: "rtx",
-  models: [{ id: "GLM-5.3-Flash", contextWindow: 813056 }, { id: "tiny" }],
+  models: [
+    {
+      id: "GLM-5.3-Flash",
+      contextWindow: 813056,
+      maxOutputTokens: 131072,
+      reasoningEfforts: ["max", "high", "turbo", "low"],
+    },
+    { id: "tiny", contextWindow: 32768 },
+  ],
 };
 const credential = { serverId: "rtx", baseUrl: "http://t3/inference/rtx/v1", token: "secret" };
 
@@ -32,7 +44,7 @@ it("points app-server at the gateway's Responses route with the token only in en
       "-c",
       'web_search="disabled"',
       "-c",
-      "model_context_window=813056",
+      "model_context_window=32768",
     ],
     environment: { [CODEX_GATEWAY_TOKEN_ENV]: "secret" },
   });
@@ -42,7 +54,68 @@ it("points app-server at the gateway's Responses route with the token only in en
     credential,
   });
   expect(unsized.args.some((arg) => arg.startsWith("model_context_window"))).toBe(false);
+  const catalogued = codexGatewayLaunch({ server, credential }, "/cache/rtx.json");
+  expect(catalogued.args.slice(-2)).toEqual(["-c", 'model_catalog_json="/cache/rtx.json"']);
+  expect(catalogued.args.some((arg) => arg.startsWith("model_context_window"))).toBe(false);
 });
+
+it("a catalog gives each served model its own window and only the efforts Codex knows", () => {
+  const [glm, tiny] = codexModelCatalog(server).models;
+  expect(glm).toMatchObject({
+    slug: "GLM-5.3-Flash",
+    context_window: 813056,
+    supported_reasoning_levels: [
+      { effort: "max", description: "max" },
+      { effort: "high", description: "high" },
+      { effort: "low", description: "low" },
+    ],
+    input_modalities: ["text"],
+    experimental_supported_tools: [],
+  });
+  expect(glm?.base_instructions.length).toBeGreaterThan(0);
+  expect(glm).not.toHaveProperty("web_search_tool_type");
+  expect(tiny).toMatchObject({ context_window: 32768, supported_reasoning_levels: [] });
+});
+
+it.effect("a session gets the catalog only from a Codex that reads it, and never fails on it", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const directory = yield* fileSystem.makeTempDirectoryScoped();
+    const access = InferenceGateway.InferenceGatewayAccess.of({
+      resolve: () => Effect.succeed({ managed: true, server }),
+      managedServer: () => Effect.succeed(server),
+      backgroundCredential: () => Effect.die("unused"),
+      instanceCredential: () => Effect.die("unused"),
+      attributeSessions: () => Effect.void,
+    });
+    const launchWith = (version: string | undefined, catalogDirectory = directory) =>
+      makeCodexGatewaySource(ProviderInstanceId.make("codex_local"), {
+        directory: catalogDirectory,
+        codexVersion: Effect.succeed(version),
+      }).pipe(
+        Effect.flatMap((source) =>
+          source.forSession({ inferenceGateway: credential } as McpProviderSessionConfig),
+        ),
+        Effect.provideService(InferenceGateway.InferenceGatewayAccess, access),
+        Effect.map((launch) => launch?.args.at(-1)),
+      );
+
+    const catalogArg = yield* launchWith("0.167.0");
+    const catalogPath = JSON.parse(catalogArg!.slice("model_catalog_json=".length)) as string;
+    expect(path.dirname(catalogPath)).toBe(directory);
+    expect(JSON.parse(yield* fileSystem.readFileString(catalogPath))).toEqual(
+      codexModelCatalog(server),
+    );
+    expect(yield* launchWith("0.167.0")).toBe(catalogArg);
+    expect(yield* fileSystem.readDirectory(directory)).toEqual([path.basename(catalogPath)]);
+
+    expect(yield* launchWith("0.165.2")).toBe("model_context_window=32768");
+    expect(yield* launchWith(undefined)).toBe("model_context_window=32768");
+    const notADirectory = path.join(directory, path.basename(catalogPath));
+    expect(yield* launchWith("0.167.0", notADirectory)).toBe("model_context_window=32768");
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
 
 it.effect("a session launches managed only with its own credential for a Responses server", () =>
   Effect.gen(function* () {

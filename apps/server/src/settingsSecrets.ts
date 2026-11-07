@@ -3,6 +3,7 @@ import {
   ClaudeSettings,
   CodexSettings,
   EasDeviceHostConfig,
+  InferenceServerConfig,
   type ProviderInstanceConfig,
   type ServerSettings,
   type SettingsSecretValue,
@@ -45,6 +46,7 @@ const providerSecretFields = new Map([
   ),
 ]);
 const usageLimitSecretFields = secretSettingsFields(UsageLimitSourceConfig);
+const inferenceServerSecretFields = secretSettingsFields(InferenceServerConfig);
 const easDeviceHostSecretFields = secretSettingsFields(EasDeviceHostConfig);
 const simlockDeviceHostSecretFields = secretSettingsFields(SimlockDeviceHostConfig);
 const encode = (value: string) => Buffer.from(value, "utf8").toString("base64url");
@@ -207,6 +209,19 @@ function mapSecretFieldGroups(
     ]),
   ) as ServerSettings["usageLimitSources"];
 
+  const inferenceServers = Object.fromEntries(
+    Object.entries(settings.inferenceServers).map(([id, server]) => [
+      id,
+      mapFields(
+        server,
+        inferenceServerSecretFields,
+        (field, serverHost) =>
+          `inference-server-${encode(id)}-${encode(field)}` +
+          (serverHost === null ? "" : `-${encode(serverHost)}`),
+      ),
+    ]),
+  ) as ServerSettings["inferenceServers"];
+
   const easDeviceHosts = settings.easDeviceHosts.map(
     (host) =>
       mapFields(
@@ -235,6 +250,7 @@ function mapSecretFieldGroups(
     providerInstances,
     sourceControlHosts,
     usageLimitSources,
+    inferenceServers,
     easDeviceHosts,
     simlockDeviceHosts,
   };

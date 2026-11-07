@@ -3,6 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   DEFAULT_SERVER_SETTINGS,
   globalIdleCompaction,
+  InferenceServerId,
   type ManagedPolicyDocument,
   ModelSelection,
   ProjectId,
@@ -1378,6 +1379,13 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
               enabled: true,
             },
           },
+          inferenceServers: {
+            [InferenceServerId.make("rtx")]: {
+              baseUrl: "http://localhost:8888/v1",
+              apiKey: "inference-secret",
+              enabled: true,
+            },
+          },
           easDeviceHosts: [
             {
               kind: "eas",
@@ -1397,6 +1405,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
           "bitbucket-secret",
           "gitcafe-secret",
           "quota-secret",
+          "inference-secret",
           "expo-secret",
         ];
         const client = ServerSettingsModule.redactServerSettingsForClient(saved, {
@@ -1414,6 +1423,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
           providerInstances: client.providerInstances,
           sourceControlHosts: client.sourceControlHosts,
           usageLimitSources: client.usageLimitSources,
+          inferenceServers: client.inferenceServers,
           easDeviceHosts: client.easDeviceHosts,
         });
         for (const value of values) assert.include(JSON.stringify(echoed), value);
@@ -1466,6 +1476,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
           }),
           sourceControlHostSecretName({ kind: "gitcafe", field: "token", serverHost: null }),
           "usage-limit-source-aHVi",
+          "inference-server-cnR4-YXBpS2V5",
         ];
         for (const name of secretNames) {
           assert.isTrue(Option.isSome(yield* store.get(name)), name);
@@ -1498,6 +1509,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
             gitcafe: { token: "" },
           },
           usageLimitSources: { [UsageLimitSourceId.make("hub")]: null },
+          inferenceServers: { [InferenceServerId.make("rtx")]: null },
         });
         for (const name of secretNames) {
           assert.isTrue(Option.isNone(yield* store.get(name)));
@@ -1676,7 +1688,11 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
         const antigravity = ProviderInstanceId.make("antigravity");
         const openCode = ProviderInstanceId.make("opencode");
         const hub = UsageLimitSourceId.make("hub");
+        const rtx = InferenceServerId.make("rtx");
         const withUsage = yield* serverSettings.updateSettings({
+          inferenceServers: {
+            [rtx]: { baseUrl: "http://localhost:8888/v1", apiKey: usageReference, enabled: true },
+          },
           usageLimitSources: {
             [hub]: {
               kind: "cliproxy",
@@ -1724,6 +1740,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
         assert.notInclude(JSON.stringify(legacy), "op://");
         assert.equal(legacy.sourceControlHosts.bitbucket?.accessToken, SECRET_REDACTED);
         assert.equal(legacy.usageLimitSources[hub]?.managementKey, SECRET_REDACTED);
+        assert.equal(legacy.inferenceServers[rtx]?.apiKey, SECRET_REDACTED);
         assert.equal(legacy.easDeviceHosts[0]?.accessToken, SECRET_REDACTED);
         assert.equal(legacy.simlockDeviceHosts[0]?.agentToken, SECRET_REDACTED);
         const configOf = (settings: ServerSettings, id: ProviderInstanceId) =>
@@ -1733,6 +1750,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
         const echoed = yield* serverSettings.updateSettings({
           sourceControlHosts: legacy.sourceControlHosts,
           usageLimitSources: legacy.usageLimitSources,
+          inferenceServers: legacy.inferenceServers,
           easDeviceHosts: legacy.easDeviceHosts,
           simlockDeviceHosts: legacy.simlockDeviceHosts,
           providerInstances: legacy.providerInstances,
@@ -1743,6 +1761,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
           "ghe.acme.test": "ghp_ghe",
         });
         assert.deepEqual(echoed.usageLimitSources[hub]?.managementKey, usageReference);
+        assert.deepEqual(echoed.inferenceServers[rtx]?.apiKey, usageReference);
         assert.deepEqual(echoed.easDeviceHosts[0]?.accessToken, easReference);
         assert.deepEqual(echoed.simlockDeviceHosts[0]?.agentToken, simlockReference);
         assert.deepEqual(configOf(echoed, antigravity)?.apiKey, antigravityReference);
@@ -1838,6 +1857,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
         "easDeviceHosts.[].accessToken",
         "simlockDeviceHosts.[].agentToken",
         "usageLimitSources.*.managementKey",
+        "inferenceServers.*.apiKey",
       ]);
     }),
   );

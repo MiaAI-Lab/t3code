@@ -13,6 +13,8 @@ import {
   getThreadAutoSettlementSearchAvailability,
   isSettingsSearchScopeAvailable,
   movedSettingsPath,
+  projectScopedSettingsOn,
+  SETTINGS_ENVIRONMENT_ONLY_PATHS,
   searchSettings,
   SETTINGS_DESTINATIONS,
   SETTINGS_SEARCH_ITEMS,
@@ -377,5 +379,16 @@ describe("movedSettingsPath", () => {
     expect(movedSettingsPath("/settings/projects", "project-defaults")).toBeNull();
     expect(movedSettingsPath("/settings/connections", "remote-environments")).toBeNull();
     expect(movedSettingsPath("/settings/appearance", "theme")).toBeNull();
+  });
+});
+
+describe("SETTINGS_ENVIRONMENT_ONLY_PATHS", () => {
+  it("lists only pages without a setting a project can override", () => {
+    for (const path of SETTINGS_ENVIRONMENT_ONLY_PATHS) {
+      expect(projectScopedSettingsOn(path as never)).toEqual([]);
+    }
+    expect(projectScopedSettingsOn("/settings/models").map((item) => item.id)).toContain(
+      "default-model",
+    );
   });
 });

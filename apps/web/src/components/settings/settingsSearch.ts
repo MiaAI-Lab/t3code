@@ -1384,6 +1384,28 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/archived": "project-defaults",
 };
 
+const PROJECT_SCOPES: ReadonlySet<SettingsSearchScope | null> = new Set([
+  "project-defaults",
+  "project",
+  "checkout",
+]);
+
+/** Pages whose settings never vary per project, so the scope sentence leaves out its project picker. */
+export const SETTINGS_ENVIRONMENT_ONLY_PATHS: ReadonlySet<string> = new Set<SettingsPath>([
+  "/settings/inference",
+  "/settings/keybindings",
+  "/settings/labs",
+]);
+
+/** Settings on a page that a project can override, from the search metadata every row registers. */
+export function projectScopedSettingsOn(path: SettingsPath): ReadonlyArray<SettingsSearchItem> {
+  const items: readonly SettingsSearchItem[] = SETTINGS_SEARCH_ITEMS;
+  return items.filter(
+    (item) =>
+      item.to === path && PROJECT_SCOPES.has(item.scope ?? SETTINGS_CATEGORY_SCOPES[item.to]),
+  );
+}
+
 const RENAMED_SETTINGS_PATHS: Readonly<Record<string, SettingsPath>> = {
   "/settings/integrations": "/settings/browser",
   "/settings/storage": "/settings/maintenance",

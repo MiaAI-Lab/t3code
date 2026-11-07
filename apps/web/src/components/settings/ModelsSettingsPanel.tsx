@@ -52,22 +52,19 @@ function LocalModelsSummary({ environment }: { readonly environment: Environment
   const [setupOpen, setSetupOpen] = useState(false);
   const servers = snapshots.filter((snapshot) => snapshot.enabled);
   return (
-    <SettingsSection
-      id="local-models"
-      title={`Your hardware on ${environment.label}`}
-      headerAction={
-        canDiscover ? (
-          <Button size="xs" onClick={() => setSetupOpen(true)}>
-            <CpuIcon className="size-3" aria-hidden />
-            Use a local model
-          </Button>
-        ) : null
-      }
-    >
+    <SettingsSection id="local-models" title={`Your hardware on ${environment.label}`}>
       {servers.length === 0 ? (
         <SettingsRow
           title="No model servers yet"
-          description="Run models on your own GPUs: T3 Code finds Ollama, LM Studio, llama.cpp, vLLM, SGLang, or TensorFold and sets them up for new threads."
+          description={`Run models on your own GPUs: T3 Code finds Ollama, LM Studio, llama.cpp, vLLM, SGLang, or TensorFold on ${environment.label} and sets one up for new threads.`}
+          control={
+            canDiscover ? (
+              <Button size="sm" onClick={() => setSetupOpen(true)}>
+                <CpuIcon aria-hidden />
+                Use a local model
+              </Button>
+            ) : null
+          }
         />
       ) : (
         servers.map((server) => (
@@ -108,6 +105,18 @@ function LocalModelsSummary({ environment }: { readonly environment: Environment
           />
         ))
       )}
+      {servers.length > 0 && canDiscover ? (
+        <SettingsRow
+          title="Another model"
+          description={`Find more model servers on ${environment.label}, or switch new threads to one of their models.`}
+          control={
+            <Button size="xs" variant="outline" onClick={() => setSetupOpen(true)}>
+              <CpuIcon aria-hidden />
+              Use a local model
+            </Button>
+          }
+        />
+      ) : null}
       {setupOpen ? (
         <UseLocalModelDialog
           environmentId={environmentId}

@@ -1,12 +1,12 @@
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
+  type InferenceServerId,
   type ProviderInstanceId,
   type EnvironmentId,
   type ProviderDriverKind,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
-import type { ServerSettings } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import { CpuIcon } from "lucide-react";
 import { createContext, memo, type ReactNode, useRef, useState } from "react";
@@ -77,7 +77,41 @@ function lockBackgroundScroll(popup: HTMLElement | null) {
 
 /** What a docked effort column needs from its picker: the model it serves. */
 
-const NO_SERVER_SETTINGS = Atom.make<ServerSettings | null>(null);
+interface LinkedServerPlace {
+  /** The machine the server runs on: its host, or this environment's name for localhost. */
+  readonly place: string;
+  readonly name: string;
+}
+
+const NO_LINKED_SERVER = Atom.make<LinkedServerPlace | null>(null);
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+/** Keyed by `[environmentId, serverId]` as JSON; only a change of the two strings re-renders. */
+const linkedServerPlaceAtom = Atom.family((key: string) => {
+  const [environmentId, serverId] = JSON.parse(key) as [EnvironmentId, InferenceServerId];
+  return Atom.make((get): LinkedServerPlace | null => {
+    const config = get(serverEnvironment.settingsValueAtom(environmentId))?.inferenceServers[
+      serverId
+    ];
+    if (config === undefined) return null;
+    let host: string;
+    try {
+      host = new URL(config.baseUrl).hostname;
+    } catch {
+      return null;
+    }
+    const place = LOOPBACK_HOSTS.has(host)
+      ? (get(serverEnvironment.configValueAtom(environmentId))?.environment.label ?? "this machine")
+      : host;
+    return { place, name: config.displayName?.trim() || serverId };
+  }).pipe(
+    Atom.withEquality(
+      (left: LinkedServerPlace | null, right: LinkedServerPlace | null) =>
+        left?.place === right?.place && left?.name === right?.name,
+    ),
+  );
+});
+
 export const DockedPickerContext = createContext<{ modelLabel: string }>({ modelLabel: "" });
 
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
@@ -153,21 +187,21 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     : triggerTitle;
   const showInstanceBadge =
     activeEntry !== null && shouldShowInstanceBadge(activeEntry, props.instanceEntries);
-  const serverSettings = useAtomValue(
-    props.environmentId === null
-      ? NO_SERVER_SETTINGS
-      : serverEnvironment.settingsValueAtom(props.environmentId),
-  );
   const linkedServerId = activeEntry?.snapshot.inferenceServerId;
-  // Where a local model runs: its linked server's name, else just that it is local.
+  const linkedServer = useAtomValue(
+    props.environmentId === null || linkedServerId === undefined
+      ? NO_LINKED_SERVER
+      : linkedServerPlaceAtom(JSON.stringify([props.environmentId, linkedServerId])),
+  );
+  // Where a local model runs: the machine its linked server is on, else just that it is local.
   const localPlace =
     activeEntry?.snapshot.inference === "local" && props.triggerLabel === undefined
       ? linkedServerId === undefined
         ? "local"
-        : serverSettings?.inferenceServers[linkedServerId]?.displayName?.trim() || linkedServerId
+        : (linkedServer?.place ?? linkedServerId)
       : null;
-  // A managed model's name ends with its server id; the chip names the server instead.
-  const repeatedPlace = linkedServerId === undefined ? null : ` (${linkedServerId})`;
+  // A managed model's name ends with its server's name; the chip says where instead.
+  const repeatedPlace = linkedServer === null ? null : ` (${linkedServer.name})`;
 
   const setIsMenuOpen = (open: boolean) => {
     props.onOpenChange?.(open);

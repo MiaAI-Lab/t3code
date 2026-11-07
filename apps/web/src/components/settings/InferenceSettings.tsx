@@ -210,16 +210,16 @@ function EnvironmentInferenceServers({
                 {refreshing ? "Checking" : "Refresh"}
               </Button>
             ) : null}
+            {!readOnly && canDiscover ? (
+              <Button size="xs" variant="outline" onClick={() => setLocalSetupRequested(true)}>
+                <SearchIcon className="size-3" aria-hidden />
+                Find servers
+              </Button>
+            ) : null}
             {!readOnly ? (
               <Button size="xs" variant="outline" onClick={() => setDialog({ mode: "add" })}>
                 <PlusIcon className="size-3" aria-hidden />
                 Add server
-              </Button>
-            ) : null}
-            {!readOnly && canDiscover ? (
-              <Button size="xs" onClick={() => setLocalSetupRequested(true)}>
-                <SearchIcon className="size-3" aria-hidden />
-                Use a local model
               </Button>
             ) : null}
           </div>

@@ -1,9 +1,14 @@
-import { ProviderDriverKind } from "@t3tools/contracts";
+import {
+  InferenceServerId,
+  ProviderDriverKind,
+  type InferenceServerSnapshot,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   normalizeProviderAccentColor,
   providerAccentForegroundColor,
+  providerInstanceInferenceLabel,
   providerInstanceInitials,
   shouldShowInstanceBadge,
 } from "./providerInstanceDisplay.ts";
@@ -81,5 +86,35 @@ describe("shouldShowInstanceBadge", () => {
     expect(shouldShowInstanceBadge(disabled, [enabled, disabled])).toBe(true);
     expect(shouldShowInstanceBadge(disabled, [disabled, { ...disabled }])).toBe(true);
     expect(shouldShowInstanceBadge(disabled, [disabled])).toBe(false);
+  });
+});
+
+describe("providerInstanceInferenceLabel", () => {
+  const rtx = InferenceServerId.make("rtx");
+  const server = (patch: Partial<InferenceServerSnapshot> = {}): InferenceServerSnapshot => ({
+    id: rtx,
+    displayName: "rtx",
+    baseUrl: "http://localhost:8888/v1",
+    enabled: true,
+    status: "ready",
+    checkedAt: null,
+    models: [],
+    ...patch,
+  });
+
+  it("names the linked server and its status, falling back to the manual mark", () => {
+    const linked = { inferenceServerId: rtx };
+    expect(providerInstanceInferenceLabel("Pi", linked, [server()])).toBe("Pi · rtx · Ready");
+    expect(providerInstanceInferenceLabel("Pi", linked, [server({ status: "unreachable" })])).toBe(
+      "Pi · rtx · Unreachable",
+    );
+    expect(providerInstanceInferenceLabel("Pi", linked, [server({ enabled: false })])).toBe(
+      "Pi · rtx · Disabled",
+    );
+    expect(providerInstanceInferenceLabel("Pi", { ...linked, inference: "local" }, [])).toBe(
+      "Pi · Local",
+    );
+    expect(providerInstanceInferenceLabel("Pi", linked, null)).toBe("Pi");
+    expect(providerInstanceInferenceLabel("Codex", {}, [server()])).toBe("Codex");
   });
 });

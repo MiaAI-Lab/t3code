@@ -43,7 +43,8 @@ Code's gateway, which:
   and decode speed, without the prompt or response text. Records are kept for 30 days.
 
 Linked Pi instances also offer Pi a lean set of T3 tools by default; see
-[T3 Tools](./providers-pi.md#t3-tools).
+[T3 Tools](./providers-pi.md#t3-tools). They also compact long threads from the server's prompt
+cache; see [Compaction on Linked Servers](./providers-pi.md#compaction-on-linked-servers).
 
 ### See what your hardware did
 

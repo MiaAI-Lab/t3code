@@ -240,16 +240,14 @@ export const materializePiT3McpExtension = Effect.fn("materializePiT3McpExtensio
   return dest;
 });
 
-// Lean becomes automatic for linked instances only once GLM evals show no regression against full.
-const AUTO_TOOL_PROFILE_WHEN_LINKED: McpToolProfile = "full";
-
 /** An explicit profile wins; "auto" follows the instance's link to an enabled inference server. */
 export function resolvePiToolProfile(
   setting: PiSettings["toolProfile"],
   linkedToInferenceServer: boolean,
 ): McpToolProfile {
   if (setting !== "auto") return setting;
-  return linkedToInferenceServer ? AUTO_TOOL_PROFILE_WHEN_LINKED : "full";
+  // GLM-5.3-Flash passed as many mcp-tool-use cases with lean as with full (evals/mcp-tool-use).
+  return linkedToInferenceServer ? "lean" : "full";
 }
 
 export function buildPiRpcLaunch(input: {

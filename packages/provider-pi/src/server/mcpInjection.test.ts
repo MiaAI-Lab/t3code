@@ -97,7 +97,7 @@ describe("pi T3 MCP injection", () => {
     ["lean", false, "lean"],
     ["lean", true, "lean"],
     ["auto", false, "full"],
-    ["auto", true, "full"],
+    ["auto", true, "lean"],
   ] as const)(
     "the %s tool profile with an inference server link %s resolves to %s",
     (setting, linked, expected) => {

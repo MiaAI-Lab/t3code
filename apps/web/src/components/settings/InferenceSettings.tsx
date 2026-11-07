@@ -89,9 +89,23 @@ export function InferenceSettingsPanel({
   readonly onLinkHandled?: () => void;
 }) {
   const { scope, environment } = useSettingsScope();
+  // Servers without inference support (such as upstream's release) omit the snapshot field.
+  const lacksInference =
+    environment?.serverConfig != null && environment.serverConfig.inferenceServers === undefined;
   return (
     <SettingsPageContainer>
-      {environment?.connection.phase === "connected" ? (
+      {environment?.connection.phase === "connected" && lacksInference ? (
+        <SettingsSection {...searchableSetting("inference-servers")}>
+          <SettingsRow
+            title={`${environment.label} runs a T3 Code server without inference servers.`}
+            description={
+              environment.entry.target._tag === "SshConnectionTarget"
+                ? "Restart this app to install its own server there. It updates SSH machines each time it connects."
+                : "Install this app's server on that machine to use model servers there."
+            }
+          />
+        </SettingsSection>
+      ) : environment?.connection.phase === "connected" ? (
         <EnvironmentInferenceServers
           key={environment.environmentId}
           environment={environment}

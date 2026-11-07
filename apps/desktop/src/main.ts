@@ -13,6 +13,8 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
@@ -119,11 +121,32 @@ const resolveDesktopSshCliRunner = (
   return { archiveVersion: environment.appVersion };
 };
 
+// This fork's packaged app carries its own server archives (see scripts/mia-build-remote-runtime.sh),
+// so SSH hosts run the fork's server instead of upstream's release download.
+const readBundledRemoteRuntime = Effect.fn("desktop.readBundledRemoteRuntime")(function* (
+  environment: DesktopEnvironment.DesktopEnvironment["Service"],
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const localArchiveDir = path.join(environment.resourcesPath, "remote-runtime");
+  const version = yield* fs
+    .readFileString(path.join(localArchiveDir, "VERSION"))
+    .pipe(Effect.orElseSucceed(() => ""));
+  return version.trim() === ""
+    ? undefined
+    : ({ archiveVersion: version.trim(), localArchiveDir } satisfies RemoteT3RunnerOptions);
+});
+
 const layerDesktopSshEnvironment = Layer.unwrap(
   Effect.gen(function* () {
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
+    const runner = resolveDesktopSshCliRunner(environment);
+    const bundled =
+      runner.nodeScriptPath === undefined
+        ? yield* readBundledRemoteRuntime(environment)
+        : undefined;
     return DesktopSshEnvironment.layer({
-      resolveCliRunner: Effect.succeed(resolveDesktopSshCliRunner(environment)),
+      resolveCliRunner: Effect.succeed(bundled ?? runner),
     });
   }),
 );

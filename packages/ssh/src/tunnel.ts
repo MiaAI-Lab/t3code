@@ -66,6 +66,8 @@ export interface RemoteT3RunnerOptions {
   readonly nodeEngineRange?: string | null;
   readonly archiveVersion?: string | null;
   readonly releaseBaseUrl?: string | null;
+  /** Holds `t3-<archiveVersion>-<platform>-<arch>.tar.gz` and SHA256SUMS to upload instead of downloading. */
+  readonly localArchiveDir?: string | null;
 }
 
 export interface SshEnvironmentManagerOptions {
@@ -494,8 +496,16 @@ if ! t3_runtime_ready; then
     else printf 'Remote host needs curl or wget to download %s.\\n' "$T3_ARCHIVE" >&2; exit 1
     fi
   }
-  t3_fetch "$T3_RELEASE_BASE_URL/v$T3_ARCHIVE_VERSION/SHA256SUMS" "$T3_STAGING/SHA256SUMS" @@T3_ARCHIVE_CHECKSUMS_SECONDS@@
-  t3_fetch "$T3_RELEASE_BASE_URL/v$T3_ARCHIVE_VERSION/$T3_ARCHIVE" "$T3_STAGING/$T3_ARCHIVE" @@T3_ARCHIVE_DOWNLOAD_SECONDS@@
+  # A desktop that carries its own archives uploads one here before launching.
+  T3_UPLOAD="$HOME/.t3/runtime/uploads/$T3_ARCHIVE"
+  if [ -f "$T3_UPLOAD" ] && [ -f "$T3_UPLOAD.sha256" ]; then
+    printf '%s  %s\\n' "$(cat "$T3_UPLOAD.sha256")" "$T3_ARCHIVE" > "$T3_STAGING/SHA256SUMS"
+    mv "$T3_UPLOAD" "$T3_STAGING/$T3_ARCHIVE"
+    rm -f "$T3_UPLOAD.sha256"
+  else
+    t3_fetch "$T3_RELEASE_BASE_URL/v$T3_ARCHIVE_VERSION/SHA256SUMS" "$T3_STAGING/SHA256SUMS" @@T3_ARCHIVE_CHECKSUMS_SECONDS@@
+    t3_fetch "$T3_RELEASE_BASE_URL/v$T3_ARCHIVE_VERSION/$T3_ARCHIVE" "$T3_STAGING/$T3_ARCHIVE" @@T3_ARCHIVE_DOWNLOAD_SECONDS@@
+  fi
   T3_EXPECTED="$(grep " \\*\\{0,1\\}$T3_ARCHIVE$" "$T3_STAGING/SHA256SUMS" | cut -d' ' -f1)"
   if command -v sha256sum >/dev/null 2>&1; then
     T3_ACTUAL="$(sha256sum "$T3_STAGING/$T3_ARCHIVE" | cut -d' ' -f1)"
@@ -859,6 +869,114 @@ function buildRemoteLogTailScript(stateKey: string): string {
   });
 }
 
+const REMOTE_ARCHIVE_PROBE_SCRIPT = `set -eu
+V="$1"
+if [ -x "$HOME/.t3/runtime/versions/$V/t3" ] && [ "$(cat "$HOME/.t3/runtime/versions/$V/.install-complete" 2>/dev/null)" = "$V" ]; then
+  echo ready
+else
+  echo "$(uname -s) $(uname -m)"
+fi
+`;
+
+const REMOTE_ARCHIVE_UPLOAD_SCRIPT = `set -eu
+d="$HOME/.t3/runtime/uploads"
+mkdir -p "$d"
+f="$d/$1"
+cat > "$f.partial.$$"
+printf '%s\\n' "$2" > "$f.sha256"
+mv "$f.partial.$$" "$f"`;
+
+/** `uname -sm` output as an archive platform key, or null for hosts without archives. */
+export function remoteArchivePlatformKey(unameOutput: string): string | null {
+  const [system, machine] = unameOutput.trim().split(/\s+/u);
+  const platform = system === "Linux" ? "linux" : system === "Darwin" ? "darwin" : null;
+  const arch =
+    machine === "aarch64" || machine === "arm64"
+      ? "arm64"
+      : machine === "x86_64" || machine === "amd64"
+        ? "x64"
+        : null;
+  return platform === null || arch === null ? null : `${platform}-${arch}`;
+}
+
+/** The archive's sha256 from a SHA256SUMS file (`<hash>  <name>` or `<hash> *<name>`). */
+export function archiveChecksum(sums: string, archiveName: string): string | null {
+  for (const line of sums.split(/\r?\n/u)) {
+    const match = /^([0-9a-f]{64}) [ *]?(.+)$/u.exec(line.trim());
+    if (match?.[2] === archiveName) return match[1] ?? null;
+  }
+  return null;
+}
+
+// Uploads this desktop's own server archive when the host lacks that version, so
+// the runner installs it without reaching a release download.
+const uploadLocalArchive = Effect.fn("ssh/tunnel.uploadLocalArchive")(function* (
+  target: DesktopSshEnvironmentTarget,
+  auth: SshAuth.SshAuthOptions | undefined,
+  runner: RemoteT3RunnerOptions,
+) {
+  const localArchiveDir = runner.localArchiveDir?.trim();
+  const version = runner.archiveVersion?.trim();
+  if (!localArchiveDir || !version || isNodeScriptRunner(runner)) return;
+  const authOptions = {
+    ...(auth?.authSecret === undefined ? {} : { authSecret: auth.authSecret }),
+    ...(auth?.batchMode === undefined ? {} : { batchMode: auth.batchMode }),
+    ...(auth?.interactiveAuth === undefined ? {} : { interactiveAuth: auth.interactiveAuth }),
+  };
+  const probe = yield* runSshCommand(target, {
+    remoteCommandArgs: ["sh", "-s", "--", version],
+    stdin: REMOTE_ARCHIVE_PROBE_SCRIPT,
+    ...authOptions,
+  });
+  const probed = getLastNonEmptyOutputLine(probe.stdout) ?? "";
+  if (probed === "ready") return;
+  const platformKey = remoteArchivePlatformKey(probed);
+  if (platformKey === null) {
+    return yield* new SshLaunchError({
+      message: `This app carries no T3 server for ${probed || "this host"}.`,
+      stdout: probe.stdout,
+    });
+  }
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const archiveName = `t3-${version}-${platformKey}.tar.gz`;
+  const archivePath = path.join(localArchiveDir, archiveName);
+  const sums = yield* fs
+    .readFileString(path.join(localArchiveDir, "SHA256SUMS"))
+    .pipe(Effect.orElseSucceed(() => ""));
+  const checksum = archiveChecksum(sums, archiveName);
+  if (
+    checksum === null ||
+    !(yield* fs.exists(archivePath).pipe(Effect.orElseSucceed(() => false)))
+  ) {
+    return yield* new SshLaunchError({
+      message: `This app carries no T3 server for ${platformKey}.`,
+      stdout: "",
+    });
+  }
+  yield* Effect.logInfo("ssh.remoteServer.upload.start", {
+    ...sshTargetLogFields(target),
+    archiveName,
+  });
+  yield* runSshCommand(target, {
+    remoteCommandArgs: [
+      "sh",
+      "-c",
+      shellSingleQuote(REMOTE_ARCHIVE_UPLOAD_SCRIPT),
+      "t3-upload",
+      archiveName,
+      checksum,
+    ],
+    stdinFile: archivePath,
+    timeoutMs: REMOTE_ARCHIVE_LAUNCH_TIMEOUT_MS,
+    ...authOptions,
+  });
+  yield* Effect.logInfo("ssh.remoteServer.upload.done", {
+    ...sshTargetLogFields(target),
+    archiveName,
+  });
+});
+
 export const launchOrReuseRemoteServer = Effect.fn("ssh/tunnel.launchOrReuseRemoteServer")(
   function* (
     target: DesktopSshEnvironmentTarget,
@@ -875,6 +993,7 @@ export const launchOrReuseRemoteServer = Effect.fn("ssh/tunnel.launchOrReuseRemo
       ...sshRunnerLogFields(runner),
       stateKey,
     });
+    if (runner !== undefined) yield* uploadLocalArchive(target, input, runner);
     const result = yield* runSshCommand(target, {
       remoteCommandArgs: ["sh", "-l", "-s", "--", stateKey],
       stdin: buildRemoteLaunchScript(runner),

@@ -1000,6 +1000,8 @@ export const DESKTOP_FILE_EXCLUSIONS = [
   "!apps/desktop/prod-resources/windows-server/**/*",
   "!apps/desktop/prod-resources/wsl-runtime.tar.gz",
   "!apps/desktop/prod-resources/wsl-runtime.tar.gz.sha256",
+  "!apps/desktop/prod-resources/remote-runtime",
+  "!apps/desktop/prod-resources/remote-runtime/**/*",
   "!apps/desktop/gnome-extension",
   "!apps/desktop/gnome-extension/**/*",
 ] as const;
@@ -1090,6 +1092,13 @@ export const WSL_RUNTIME_EXTRA_RESOURCES = [
   WSL_RUNTIME_ARCHIVE_EXTRA_RESOURCE,
   WSL_RUNTIME_ARCHIVE_HASH_EXTRA_RESOURCE,
 ] as const;
+// Fork: server archives for SSH hosts, built by scripts/mia-build-remote-runtime.sh.
+const REMOTE_RUNTIME_SOURCE_DIR = "release/remote-runtime";
+const REMOTE_RUNTIME_EXTRA_RESOURCE = {
+  from: "apps/desktop/prod-resources/remote-runtime",
+  to: "remote-runtime",
+};
+
 export const DESKTOP_EXTRA_RESOURCES = [
   {
     from: "apps/desktop/prod-resources/cursor-sdk",
@@ -2778,6 +2787,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     | undefined,
   wslRuntimeBundled = false,
   arch?: typeof BuildArch.Type,
+  remoteRuntimeBundled = false,
 ) {
   const buildConfig: Record<string, unknown> = {
     afterPack: (yield* Path.Path).join(yield* RepoRoot, "scripts/prepare-server-compile-cache.cjs"),
@@ -2806,6 +2816,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       ...(platform === "linux" ? LINUX_BROWSER_SECRET_EXTRA_RESOURCES : []),
       ...(platform === "win" ? WINDOWS_SERVER_EXTRA_RESOURCES : []),
       ...(platform === "win" && wslRuntimeBundled ? WSL_RUNTIME_EXTRA_RESOURCES : []),
+      ...(remoteRuntimeBundled ? [REMOTE_RUNTIME_EXTRA_RESOURCE] : []),
     ],
   };
   const updateChannel = resolveDesktopUpdateChannel(version);
@@ -3804,6 +3815,11 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
   // electron-builder is filtering out stageResourcesDir directory in the AppImage for production
   const stageProdResourcesDir = path.join(stageAppDir, "apps/desktop/prod-resources");
   yield* fs.copy(stageResourcesDir, stageProdResourcesDir);
+  const remoteRuntimeDir = path.join(repoRoot, REMOTE_RUNTIME_SOURCE_DIR);
+  const remoteRuntimeBundled = yield* fs.exists(path.join(remoteRuntimeDir, "VERSION"));
+  if (remoteRuntimeBundled) {
+    yield* fs.copy(remoteRuntimeDir, path.join(stageProdResourcesDir, "remote-runtime"));
+  }
 
   const configuredMacPasskeySigning =
     options.platform === "mac" && options.signed
@@ -3892,6 +3908,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
         : undefined,
       bundlesWslRuntime({ platform: options.platform, runtimeArchivePath: options.wslRuntime }),
       options.arch,
+      remoteRuntimeBundled,
     ),
     dependencies: stageDependencies,
     devDependencies: {

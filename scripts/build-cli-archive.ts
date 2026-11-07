@@ -645,7 +645,11 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
   });
 
   const executablePath = path.join(contentDir, executableName);
-  if (input.platform === "linux") {
+  // Opt-out for archives that only reach hosts with libatomic1 installed, such as LAN machines.
+  const systemLibatomic = yield* Config.Boolean("T3CODE_CLI_SYSTEM_LIBATOMIC").pipe(
+    Config.withDefault(false),
+  );
+  if (input.platform === "linux" && !systemLibatomic) {
     yield* bundleLinuxLibatomic({ repoRoot, contentDir, executablePath });
   }
   // TEMPORARY one-time Node fix. Remove when fixed: https://github.com/nodejs/node/issues/67048

@@ -6,7 +6,9 @@ import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as Result from "effect/Result";
@@ -107,6 +109,59 @@ describe("ssh tunnel scripts", () => {
       "T3_ARCHIVE_VERSION='1.2.3-preview.20260911.4'",
     );
   });
+
+  it("reads archive checksums and remote platforms", () => {
+    const hash = "a".repeat(64);
+    const sums = `${"b".repeat(64)}  t3-1.0.0-linux-x64.tar.gz\n${hash} *t3-1.0.0-linux-arm64.tar.gz\n`;
+    assert.strictEqual(SshTunnel.archiveChecksum(sums, "t3-1.0.0-linux-arm64.tar.gz"), hash);
+    assert.isNull(SshTunnel.archiveChecksum(sums, "t3-1.0.0-darwin-arm64.tar.gz"));
+    assert.strictEqual(SshTunnel.remoteArchivePlatformKey("Linux aarch64\n"), "linux-arm64");
+    assert.strictEqual(SshTunnel.remoteArchivePlatformKey("Darwin arm64"), "darwin-arm64");
+    assert.strictEqual(SshTunnel.remoteArchivePlatformKey("Linux x86_64"), "linux-x64");
+    assert.isNull(SshTunnel.remoteArchivePlatformKey("FreeBSD amd64"));
+  });
+
+  it.effect("installs an uploaded archive without downloading", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const home = yield* fs.makeTempDirectoryScoped({ prefix: "t3-runner-" });
+      const version = "1.2.3-mia.1";
+      const uname = yield* spawner.string(ChildProcess.make("uname", ["-sm"]));
+      const archiveName = `t3-${version}-${SshTunnel.remoteArchivePlatformKey(uname)}.tar.gz`;
+      const stage = path.join(home, "stage", "t3-root");
+      yield* fs.makeDirectory(stage, { recursive: true });
+      yield* fs.writeFileString(path.join(stage, "t3"), '#!/bin/sh\necho "fork $*"\n');
+      yield* fs.chmod(path.join(stage, "t3"), 0o755);
+      const uploads = path.join(home, ".t3", "runtime", "uploads");
+      yield* fs.makeDirectory(uploads, { recursive: true });
+      const archivePath = path.join(uploads, archiveName);
+      yield* spawner.string(
+        ChildProcess.make("tar", ["-czf", archivePath, "-C", path.join(home, "stage"), "t3-root"]),
+      );
+      const sums = yield* spawner.string(ChildProcess.make("sha256sum", [archivePath]));
+      yield* fs.writeFileString(`${archivePath}.sha256`, `${sums.split(" ")[0]}\n`);
+      const script = SshTunnel.buildRemoteT3RunnerScript({
+        archiveVersion: version,
+        releaseBaseUrl: "http://127.0.0.1:9/unreachable",
+      });
+      const stdout = yield* spawner.string(
+        ChildProcess.make("sh", ["-c", script, "t3", "--version"], {
+          env: { HOME: home },
+          extendEnv: true,
+        }),
+      );
+      assert.strictEqual(stdout, "fork --version\n");
+      const installed = path.join(home, ".t3", "runtime", "versions", version);
+      assert.strictEqual(
+        yield* fs.readFileString(path.join(installed, ".install-complete")),
+        `${version}\n`,
+      );
+      assert.isFalse(yield* fs.exists(archivePath));
+      assert.isFalse(yield* fs.exists(`${archivePath}.sha256`));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
 
   it.effect("accepts launch JSON after remote shell startup noise", () => {
     const target = {

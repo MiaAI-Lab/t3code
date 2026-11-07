@@ -102,8 +102,13 @@ const fromRow = (row: typeof Row.Type): InferenceRequestRecord => ({
   completionTokens: row.completion_tokens,
 });
 
+// Below this the output arrived in a burst (often buffered tool calls), not at a decode rate.
+const MIN_DECODE_WINDOW_MS = 100;
+
 const decodeSpeed = (record: InferenceRequestRecord) =>
-  record.completionTokens !== null && record.decodeMs !== null && record.decodeMs > 0
+  record.completionTokens !== null &&
+  record.decodeMs !== null &&
+  record.decodeMs >= MIN_DECODE_WINDOW_MS
     ? record.completionTokens / (record.decodeMs / 1_000)
     : null;
 

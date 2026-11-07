@@ -124,6 +124,17 @@ it.effect("returns a thread's latest completed request", () =>
   }).pipe(Effect.provide(layer)),
 );
 
+// Servers can flush buffered output (tool calls) in one burst; that is not a decode rate.
+it.effect("reports no decode speed for output that arrived in a burst", () =>
+  Effect.gen(function* () {
+    const log = yield* InferenceRequests.InferenceRequestLog;
+    yield* log.record(
+      row(1, { receivedAt: 1_000, durationMs: 900, decodeMs: 2, completionTokens: 90 }),
+    );
+    expect((yield* log.latestForThread(thread))?.decodeTokensPerSecond).toBeNull();
+  }).pipe(Effect.provide(layer)),
+);
+
 it.effect("prunes records past the retention window when it records", () =>
   Effect.gen(function* () {
     const log = yield* InferenceRequests.InferenceRequestLog;

@@ -9,6 +9,7 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   AntigravitySettings,
+  InferenceServerId,
   EnvironmentId,
   type ClaudeSettings,
   type CodexSettings,
@@ -1059,6 +1060,12 @@ describe("ProviderInstanceRegistry inference mark", () => {
       expect((yield* local!.snapshot.refresh).inference).toBe("local");
       const streamed = yield* Stream.runCollect(local!.snapshot.streamChanges);
       expect(Array.from(streamed).map((snapshot) => snapshot.inference)).toEqual(["local"]);
+
+      const rtx = InferenceServerId.make("rtx");
+      yield* mutator.reconcile({ [instanceId]: { driver: driverKind, inferenceServerId: rtx } });
+      const linked = yield* (yield* registry.getInstance(instanceId))!.snapshot.getSnapshot;
+      expect(linked.inferenceServerId).toBe(rtx);
+      expect("inference" in linked).toBe(false);
 
       yield* mutator.reconcile({ [instanceId]: { driver: driverKind } });
       const unmarked = yield* (yield* registry.getInstance(instanceId))!.snapshot.getSnapshot;

@@ -125,6 +125,41 @@ describe("TextGeneration local-first routing", () => {
     });
   });
 
+  it.effect("asks a substituted local model for low reasoning when it offers it", () => {
+    const thinking = {
+      optionDescriptors: [
+        {
+          id: "thinking",
+          label: "Thinking",
+          type: "select" as const,
+          options: ["off", "low", "high"].map((id) => ({
+            id,
+            label: id,
+            ...(id === "high" ? { isDefault: true } : {}),
+          })),
+        },
+      ],
+    };
+    const local = snapshot(piLocal, "pi", ["rtx/GLM-5.3-Flash"], { inference: "local" });
+    const fixture = setup({
+      providers: [
+        snapshot(codex, "codex", ["gpt-6-luna"]),
+        { ...local, models: local.models.map((model) => ({ ...model, capabilities: thinking })) },
+      ],
+      settings: markedLocal,
+    });
+    return Effect.gen(function* () {
+      yield* fixture.commit(builtIn);
+      expect(fixture.calls).toEqual([
+        {
+          instanceId: piLocal,
+          model: "rtx/GLM-5.3-Flash",
+          options: [{ id: "thinking", value: "low" }],
+        },
+      ]);
+    });
+  });
+
   it.effect("keeps a model the user picked, even the built-in one", () => {
     const fixture = setup({
       providers: [

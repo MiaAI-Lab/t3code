@@ -1,5 +1,6 @@
 import {
   DEFAULT_SERVER_SETTINGS,
+  InferenceServerId,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -152,6 +153,24 @@ describe("local-first text generation", () => {
     expect(fallbackTextGenerationModelSelection({}, enabled, { policy: "any" })?.instanceId).toBe(
       "pi",
     );
+  });
+
+  it("treats an instance linked to an enabled inference server as local, not a disabled one", () => {
+    const rtx = InferenceServerId.make("rtx");
+    const linkedPi = ProviderInstanceId.make("pi_rtx");
+    const linked = {
+      [linkedPi]: { driver: pi, inferenceServerId: rtx, enabled: true },
+      [ProviderInstanceId.make("pi_cloud")]: { driver: pi, enabled: true },
+    };
+    const pick = (enabled: boolean) =>
+      fallbackTextGenerationModelSelection(linked, () => true, {
+        includeConfiguredInstances: true,
+        policy: "local",
+        inferenceServers: { [rtx]: { baseUrl: "http://rtx:8888/v1", apiKey: "", enabled } },
+      })?.instanceId;
+    expect(pick(true)).toBe(linkedPi);
+    // Nothing counts as local, so the cross-provider order applies again.
+    expect(pick(false)).toBe("pi");
   });
 
   it("picks a ready local instance's concrete default model, never an alias", () => {

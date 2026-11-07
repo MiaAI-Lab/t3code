@@ -275,6 +275,7 @@ import {
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import * as AgentSessionImporter from "./project/AgentSessionImporter.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
+import * as InferenceServerRegistry from "./inference/InferenceServerRegistry.ts";
 import { requestUrl } from "./requestUrl.ts";
 
 const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
@@ -390,7 +391,16 @@ export const withLateConfigDiscovery = <E, R>(
           case "keybindingsUpdated":
             return [{ ...current, ...event.payload }, [event]];
           case "providerStatuses":
-            return [{ ...current, providers: event.payload.providers }, [event]];
+            return [
+              {
+                ...current,
+                providers: event.payload.providers,
+                ...(event.payload.inferenceServers === undefined
+                  ? {}
+                  : { inferenceServers: event.payload.inferenceServers }),
+              },
+              [event],
+            ];
           case "settingsUpdated":
             return [{ ...current, settings: event.payload.settings }, [event]];
           // Themes and usage-limit sources survive snapshots because snapshots never include them.
@@ -1468,6 +1478,7 @@ export const layerWsRpc = (
             );
       const usage = yield* UsageService.UsageService;
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
+      const inferenceServers = yield* InferenceServerRegistry.InferenceServerRegistry;
       const worktreeSetupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
       const projectCloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
       const repositoryIdentityResolver =
@@ -1930,6 +1941,7 @@ export const layerWsRpc = (
           keybindings: keybindingsConfig.keybindings,
           issues: keybindingsConfig.issues,
           providers,
+          inferenceServers: yield* inferenceServers.current,
           ...discovery,
           observability: {
             logsDirectoryPath: config.logsDir,
@@ -2468,8 +2480,10 @@ export const layerWsRpc = (
               }),
             ),
           ),
-        // Replaced by the inference server registry.
-        [WS_METHODS.serverRefreshInferenceServers]: () => Effect.succeed({ inferenceServers: [] }),
+        [WS_METHODS.serverRefreshInferenceServers]: (input) =>
+          inferenceServers
+            .refresh(input.id)
+            .pipe(Effect.map((snapshots) => ({ inferenceServers: snapshots }))),
         [WS_METHODS.serverRefreshProviders]:
           /* Request instrumentation already owns the span; keep this helper in that context. */
           Effect.fnUntraced(function* (input) {
@@ -3342,16 +3356,31 @@ export const layerWsRpc = (
                       )
                     : Effect.succeed(commandProviders),
                 ),
+                (providerUpdates) =>
+                  Stream.zipLatestWith(
+                    providerUpdates,
+                    inferenceServers.streamChanges,
+                    (providers, servers) => ({ providers, inferenceServers: servers }),
+                  ),
                 // Compare initial paired values with the snapshot; blindly dropping them loses changes between snapshot and subscription.
-                (updates) => Stream.concat(rpcInitialItems([config.providers]), updates),
+                (updates) =>
+                  Stream.concat(
+                    rpcInitialItems([
+                      {
+                        providers: config.providers,
+                        inferenceServers: config.inferenceServers ?? [],
+                      },
+                    ]),
+                    updates,
+                  ),
                 Stream.changesWith(
                   (previous, next) => JSON.stringify(previous) === JSON.stringify(next),
                 ),
                 Stream.drop(1),
-                Stream.map((providers) => ({
+                Stream.map((payload) => ({
                   version: 1 as const,
                   type: "providerStatuses" as const,
-                  payload: { providers },
+                  payload,
                 })),
                 Stream.debounce(Duration.millis(PROVIDER_STATUS_DEBOUNCE_MS)),
               );

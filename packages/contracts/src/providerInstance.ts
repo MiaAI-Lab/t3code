@@ -90,6 +90,20 @@ export const ProviderInstanceConfig = Schema.Struct({
 });
 export type ProviderInstanceConfig = typeof ProviderInstanceConfig.Type;
 
+/**
+ * A linked instance is local exactly while its registered server is enabled; a link to a disabled
+ * or missing server is not local, whatever the manual mark says. Unlinked instances use the mark.
+ */
+export function isLocalProviderInstance(
+  instance: Pick<ProviderInstanceConfig, "inference" | "inferenceServerId"> | undefined,
+  inferenceServers: Readonly<Record<string, { readonly enabled: boolean }>> | undefined,
+): boolean {
+  if (instance?.inferenceServerId !== undefined) {
+    return inferenceServers?.[instance.inferenceServerId]?.enabled === true;
+  }
+  return instance?.inference === "local";
+}
+
 export const ProviderInstanceMutation = Schema.Union([
   Schema.Struct({
     operation: Schema.Literal("create"),

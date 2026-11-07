@@ -3,6 +3,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   providerInstanceConfigEnabledFlag,
+  isLocalProviderInstance,
   resolveProviderInstanceEnabled,
   type ProviderInstanceConfig,
   type ProviderInstanceConfigMap,
@@ -78,6 +79,17 @@ export const deriveProviderInstanceConfigMap = (
           : {}),
       };
     }
+  }
+
+  // The registry stamps the envelope's mark, so a link's locality is resolved into it here.
+  for (const [rawInstanceId, entry] of Object.entries(merged)) {
+    if (entry.inferenceServerId === undefined) continue;
+    const { inference: _mark, ...unmarked } = entry;
+    merged[rawInstanceId] = isLocalProviderInstance(entry, settings.inferenceServers)
+      ? { ...unmarked, inference: "local" }
+      : entry.inference === "local"
+        ? unmarked
+        : entry;
   }
 
   return merged as ProviderInstanceConfigMap;

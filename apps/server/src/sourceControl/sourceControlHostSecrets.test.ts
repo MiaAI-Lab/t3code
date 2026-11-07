@@ -1,5 +1,10 @@
 import { assert, it } from "@effect/vitest";
-import { DeviceHostId, SecretProviderId, UsageLimitSourceId } from "@t3tools/contracts";
+import {
+  DeviceHostId,
+  InferenceServerId,
+  SecretProviderId,
+  UsageLimitSourceId,
+} from "@t3tools/contracts";
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
 import * as Effect from "effect/Effect";
 
@@ -163,7 +168,15 @@ it.effect("reads a collected reference again once it is invalidated", () =>
         maxLeaseMinutes: 60,
       },
     ];
+    const inferenceServers = {
+      [InferenceServerId.make("rtx")]: {
+        baseUrl: "http://localhost:8888/v1",
+        apiKey: source("inference#key"),
+        enabled: true,
+      },
+    };
     cache.set("cliproxy#key", "stale");
+    cache.set("inference#key", "stale");
     cache.set("expo#token", "stale");
     cache.set("simlock#token", "stale");
     assert.deepEqual((yield* read()).bitbucket, {
@@ -176,11 +189,13 @@ it.effect("reads a collected reference again once it is invalidated", () =>
       Effect.succeed({
         sourceControlHosts: hosts,
         usageLimitSources,
+        inferenceServers,
         easDeviceHosts,
         simlockDeviceHosts,
       }),
     );
     assert.isFalse(cache.has("cliproxy#key"));
+    assert.isFalse(cache.has("inference#key"));
     assert.isFalse(cache.has("expo#token"));
     assert.isFalse(cache.has("simlock#token"));
     assert.deepEqual((yield* read()).bitbucket, {

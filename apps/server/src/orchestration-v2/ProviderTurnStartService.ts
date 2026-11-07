@@ -3,6 +3,7 @@ import { projectComposerContextForProvider } from "@t3tools/shared/composerConte
 import {
   CommandId,
   latestProviderTurnForAttempt,
+  type ModelSelection,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ContextHandoff,
   type OrchestrationV2ExecutionNode,
@@ -31,6 +32,7 @@ import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as InferenceServerRegistry from "../inference/InferenceServerRegistry.ts";
 import { makeIsManagedWorktreePath } from "../worktreesDirectory.ts";
 import * as EventSink from "./EventSink.ts";
 import * as ProviderUsageAnalytics from "../telemetry/ProviderUsageAnalytics.ts";
@@ -162,6 +164,32 @@ export const layer: Layer.Layer<
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
     const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
+    const serverSettings = yield* ServerSettings.ServerSettingsService;
+    // Optional so orchestration test runtimes need no probe layer; the server always provides it.
+    const inferenceServers = yield* Effect.serviceOption(
+      InferenceServerRegistry.InferenceServerRegistry,
+    );
+
+    const linkedServerModelWindow = Effect.fn("ProviderTurnStartService.linkedServerModelWindow")(
+      function* (selection: ModelSelection) {
+        if (inferenceServers._tag === "None") return undefined;
+        const settings = yield* serverSettings.getSettings.pipe(Effect.option);
+        if (settings._tag === "None") return undefined;
+        const { window, unmatched } = InferenceServerRegistry.servedContextWindowForModel({
+          instance: settings.value.providerInstances[selection.instanceId],
+          inferenceServers: settings.value.inferenceServers,
+          snapshots: yield* inferenceServers.value.current,
+          model: selection.model,
+        });
+        if (unmatched !== undefined) {
+          yield* Effect.logWarning("linked inference server does not list the turn's model", {
+            instanceId: selection.instanceId,
+            inferenceServerId: unmatched,
+          });
+        }
+        return window;
+      },
+    );
 
     const resolveRecreateBase = Effect.fn("ProviderTurnStartService.resolveRecreateBase")(
       function* (cwd: string) {
@@ -873,6 +901,7 @@ export const layer: Layer.Layer<
       const tokenCap = yield* handoffTokenCapConfig.pipe(
         Effect.orElseSucceed(() => DEFAULT_HANDOFF_TOKEN_CAP),
       );
+      const servedModelWindow = yield* linkedServerModelWindow(run.modelSelection);
       const handoffContextForThread = (loadedProviderThread: OrchestrationV2ProviderThread) => {
         const measuredContext = latestNativeContextUsage(projection, providerThread);
         const previousSelection =
@@ -897,10 +926,15 @@ export const layer: Layer.Layer<
           sameSelection ||
           (previousSelection !== undefined &&
             session.canReuseContextUsage?.(previousSelection, run.modelSelection) === true);
-        const knownModelWindow = session.getModelContextWindow?.(
+        const harnessModelWindow = session.getModelContextWindow?.(
           run.modelSelection,
           resolvedRuntimePolicy.cwd,
         );
+        // The server enforces its served window, so a harness that claims more cannot raise it.
+        const knownModelWindow =
+          servedModelWindow === undefined
+            ? harnessModelWindow
+            : Math.min(servedModelWindow, harnessModelWindow ?? servedModelWindow);
         const handoffUsage = contextUsageForHandoff({
           sameNativeThread,
           sameSelection,

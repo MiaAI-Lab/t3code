@@ -1,0 +1,446 @@
+import {
+  DEFAULT_PROVIDER_HEALTH_REFRESH_INTERVAL,
+  type InferenceServerConfig,
+  InferenceServerId,
+  type InferenceServerLoad,
+  type InferenceServerModel,
+  type InferenceServerSnapshot,
+  type ProviderInstanceConfig,
+  type ServerSettings,
+} from "@t3tools/contracts";
+import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
+import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
+import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as Equal from "effect/Equal";
+import * as Layer from "effect/Layer";
+import * as PubSub from "effect/PubSub";
+import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
+import * as Stream from "effect/Stream";
+import { HttpClient, HttpClientRequest } from "effect/http";
+
+import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
+import * as SecretResolverLayer from "../secrets/SecretResolver.ts";
+import { requireSettingsSecret } from "../secrets/settingsSecretValue.ts";
+import * as Settings from "../serverSettings.ts";
+
+export class InferenceServerRegistry extends Context.Service<
+  InferenceServerRegistry,
+  {
+    readonly current: Effect.Effect<ReadonlyArray<InferenceServerSnapshot>>;
+    readonly streamChanges: Stream.Stream<ReadonlyArray<InferenceServerSnapshot>>;
+    /** Probes every enabled server, or only `id`, and returns every snapshot after it. */
+    readonly refresh: (
+      id?: InferenceServerId,
+    ) => Effect.Effect<ReadonlyArray<InferenceServerSnapshot>>;
+  }
+>()("t3/inference/InferenceServerRegistry") {}
+
+const MODELS_TIMEOUT = Duration.seconds(5);
+const ENRICHMENT_TIMEOUT = Duration.seconds(3);
+
+type Endpoint =
+  | { readonly base: string; readonly origin: string; readonly display: string }
+  | { readonly error: string; readonly display: string };
+
+function parseBaseUrl(raw: string): Endpoint {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return {
+      error: "The base URL is not a valid URL.",
+      display: raw.replace(/^([a-z][a-z0-9+.-]*:\/\/)?[^/@]*@/i, "$1"),
+    };
+  }
+  const display = `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, "")}`;
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return { error: "The base URL must start with http:// or https://.", display };
+  }
+  if (url.username !== "" || url.password !== "") {
+    return { error: "Put credentials in the API key, not the base URL.", display };
+  }
+  if (url.search !== "" || url.hash !== "") {
+    return {
+      error: "The base URL cannot carry a query string; put credentials in the API key.",
+      display,
+    };
+  }
+  return { base: display, origin: url.origin, display };
+}
+
+function displayNameOf(id: string, config: InferenceServerConfig): string {
+  if (config.displayName) return config.displayName;
+  try {
+    return new URL(config.baseUrl).hostname || id;
+  } catch {
+    return id;
+  }
+}
+
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const positiveInt = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+
+const nonEmptyStrings = (value: unknown): ReadonlyArray<string> =>
+  Array.isArray(value)
+    ? value.flatMap((entry) =>
+        typeof entry === "string" && entry.trim() !== "" ? [entry.trim()] : [],
+      )
+    : [];
+
+const ModelList = Schema.fromJsonString(Schema.Struct({ data: Schema.Array(Schema.Unknown) }));
+const decodeModelList = Schema.decodeUnknownOption(ModelList);
+const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
+
+function readModel(raw: unknown): InferenceServerModel | undefined {
+  if (!isRecord(raw) || typeof raw.id !== "string" || raw.id.trim() === "") return undefined;
+  const served = positiveInt(raw.context_length) ?? positiveInt(raw.max_model_len);
+  // llama.cpp reports what the weights were trained for, not the --ctx-size it serves.
+  const trained = isRecord(raw.meta) ? positiveInt(raw.meta.n_ctx_train) : undefined;
+  const efforts = isRecord(raw.reasoning) ? nonEmptyStrings(raw.reasoning.supported_efforts) : [];
+  return {
+    id: raw.id.trim(),
+    ...(served === undefined ? {} : { servedContextWindow: served }),
+    ...(trained === undefined ? {} : { trainedContextWindow: trained }),
+    ...(efforts.length === 0 ? {} : { reasoningEfforts: efforts }),
+  };
+}
+
+const ENGINE_BY_OWNER: Readonly<Record<string, string>> = {
+  tensorfold: "TensorFold",
+  vllm: "vLLM",
+  llamacpp: "llama.cpp",
+};
+
+const METRICS = [
+  {
+    engine: "TensorFold",
+    running: "tensorfold:requests_running",
+    waiting: "tensorfold:requests_waiting",
+  },
+  { engine: "vLLM", running: "vllm:num_requests_running", waiting: "vllm:num_requests_waiting" },
+  {
+    engine: "llama.cpp",
+    running: "llamacpp:requests_processing",
+    waiting: "llamacpp:requests_deferred",
+  },
+] as const;
+
+/** Sums each series across its labels; returns the first engine whose two gauges are present. */
+function readMetrics(text: string): { engine: string; load: InferenceServerLoad } | undefined {
+  const totals = new Map<string, number>();
+  for (const line of text.split("\n")) {
+    const match = /^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{[^}]*\})?\s+(\S+)/.exec(line.trim());
+    if (match === null) continue;
+    const value = Number(match[2]);
+    if (!Number.isFinite(value) || value < 0) continue;
+    totals.set(match[1]!, (totals.get(match[1]!) ?? 0) + value);
+  }
+  for (const family of METRICS) {
+    const running = totals.get(family.running);
+    const waiting = totals.get(family.waiting);
+    if (running === undefined || waiting === undefined) continue;
+    return {
+      engine: family.engine,
+      load: { running: Math.round(running), waiting: Math.round(waiting) },
+    };
+  }
+  return undefined;
+}
+
+/**
+ * The served window of a linked instance's model, matched by exact id or a harness slug ending in
+ * `/<id>`. `unmatched` names a ready server that does not list the model.
+ */
+export function servedContextWindowForModel(input: {
+  readonly instance: Pick<ProviderInstanceConfig, "inferenceServerId"> | undefined;
+  readonly inferenceServers: ServerSettings["inferenceServers"];
+  readonly snapshots: ReadonlyArray<InferenceServerSnapshot>;
+  readonly model: string;
+}): { readonly window?: number; readonly unmatched?: InferenceServerId } {
+  const serverId = input.instance?.inferenceServerId;
+  if (serverId === undefined || input.inferenceServers[serverId]?.enabled !== true) return {};
+  const snapshot = input.snapshots.find((candidate) => candidate.id === serverId);
+  if (snapshot?.status !== "ready") return {};
+  const model = snapshot.models.find(
+    (candidate) => input.model === candidate.id || input.model.endsWith(`/${candidate.id}`),
+  );
+  if (model === undefined) return { unmatched: serverId };
+  return model.servedContextWindow === undefined ? {} : { window: model.servedContextWindow };
+}
+
+type Fetched =
+  | { readonly _tag: "Response"; readonly status: number; readonly body: string }
+  | { readonly _tag: "Unreachable"; readonly timedOut: boolean };
+
+/** @public */
+export const make = Effect.gen(function* () {
+  const client = yield* HttpClient.HttpClient;
+  const settingsService = yield* Settings.ServerSettingsService;
+  const secrets = yield* SecretResolver.SecretResolver;
+  const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
+  const stateRef = yield* Ref.make<ReadonlyArray<InferenceServerSnapshot>>([]);
+  const changes = yield* Effect.acquireRelease(
+    PubSub.unbounded<ReadonlyArray<InferenceServerSnapshot>>(),
+    PubSub.shutdown,
+  );
+
+  const fetchText = Effect.fn("InferenceServerRegistry.fetch")(function* (
+    url: string,
+    apiKey: string,
+    timeout: Duration.Duration,
+  ) {
+    const request = HttpClientRequest.get(url).pipe(
+      apiKey === "" ? (request) => request : HttpClientRequest.bearerToken(apiKey),
+    );
+    return yield* client.execute(request).pipe(
+      Effect.flatMap((response) =>
+        Effect.map(response.text, (body): Fetched => ({
+          _tag: "Response",
+          status: response.status,
+          body,
+        })),
+      ),
+      Effect.timeoutOption(timeout),
+      Effect.map((result) =>
+        result._tag === "Some" ? result.value : ({ _tag: "Unreachable", timedOut: true } as const),
+      ),
+      Effect.orElseSucceed(() => ({ _tag: "Unreachable", timedOut: false }) as const),
+    );
+  });
+
+  const enrichmentJson = (url: string, apiKey: string) =>
+    fetchText(url, apiKey, ENRICHMENT_TIMEOUT).pipe(
+      Effect.map((fetched) =>
+        fetched._tag === "Response" && fetched.status >= 200 && fetched.status < 300
+          ? decodeJson(fetched.body).pipe((option) =>
+              option._tag === "Some" ? option.value : undefined,
+            )
+          : undefined,
+      ),
+    );
+
+  const probe = Effect.fn("InferenceServerRegistry.probe")(function* (
+    id: InferenceServerId,
+    config: InferenceServerConfig,
+  ) {
+    const endpoint = parseBaseUrl(config.baseUrl);
+    const base = {
+      id,
+      displayName: displayNameOf(id, config),
+      baseUrl: endpoint.display,
+      enabled: config.enabled,
+      models: [],
+    } as const;
+    if (!config.enabled) {
+      return { ...base, status: "unreachable", checkedAt: null, message: "Turned off." } as const;
+    }
+    const checkedAt = DateTime.formatIso(yield* DateTime.now);
+    if ("error" in endpoint) {
+      return { ...base, status: "error", checkedAt, message: endpoint.error } as const;
+    }
+    const apiKey = yield* requireSettingsSecret(secrets, config.apiKey).pipe(
+      Effect.map((value) => value.trim()),
+      Effect.option,
+    );
+    if (apiKey._tag === "None") {
+      return {
+        ...base,
+        status: "error",
+        checkedAt,
+        message: "Could not read the API key from its secret provider.",
+      } as const;
+    }
+    const key = apiKey.value;
+
+    const listed = yield* fetchText(`${endpoint.base}/models`, key, MODELS_TIMEOUT);
+    if (listed._tag === "Unreachable") {
+      return {
+        ...base,
+        status: "unreachable",
+        checkedAt,
+        message: listed.timedOut
+          ? "The server did not answer in time."
+          : "Could not connect to the server.",
+      } as const;
+    }
+    if (listed.status === 401 || listed.status === 403) {
+      return {
+        ...base,
+        status: "error",
+        checkedAt,
+        message: "The server rejected the API key.",
+      } as const;
+    }
+    if (listed.status < 200 || listed.status >= 300) {
+      return {
+        ...base,
+        status: "error",
+        checkedAt,
+        message: `The server answered ${listed.status} when listing models.`,
+      } as const;
+    }
+    const list = decodeModelList(listed.body);
+    if (list._tag === "None") {
+      return {
+        ...base,
+        status: "error",
+        checkedAt,
+        message: "The server's model list is not in the OpenAI format.",
+      } as const;
+    }
+    const models = list.value.data.flatMap((raw) => readModel(raw) ?? []);
+    const owner = list.value.data.find(isRecord)?.owned_by;
+    const ownerEngine = typeof owner === "string" ? ENGINE_BY_OWNER[owner] : undefined;
+
+    // Optional: a failure here never downgrades the model list above.
+    const [health, metricsText, slots] = yield* Effect.all(
+      [
+        ownerEngine === "TensorFold"
+          ? enrichmentJson(`${endpoint.origin}/health`, key)
+          : Effect.undefined,
+        fetchText(`${endpoint.origin}/metrics`, key, ENRICHMENT_TIMEOUT),
+        ownerEngine === "llama.cpp"
+          ? enrichmentJson(`${endpoint.origin}/slots`, key)
+          : Effect.undefined,
+      ],
+      { concurrency: "unbounded" },
+    );
+    const metrics =
+      metricsText._tag === "Response" && metricsText.status >= 200 && metricsText.status < 300
+        ? readMetrics(metricsText.body)
+        : undefined;
+    const engine = ownerEngine ?? metrics?.engine;
+    // Batch size means concurrent requests only where that is verified for the engine.
+    const maxConcurrentRequests =
+      engine === "TensorFold" && isRecord(health)
+        ? positiveInt(health.max_batch_size)
+        : engine === "llama.cpp" && Array.isArray(slots) && slots.length > 0
+          ? slots.length
+          : undefined;
+    return {
+      ...base,
+      status: "ready",
+      checkedAt,
+      models,
+      ...(engine === undefined ? {} : { engine }),
+      ...(metrics === undefined ? {} : { load: metrics.load }),
+      ...(maxConcurrentRequests === undefined ? {} : { maxConcurrentRequests }),
+    } as const;
+  });
+
+  const publish = Effect.fn("InferenceServerRegistry.publish")(function* (
+    next: ReadonlyArray<InferenceServerSnapshot>,
+  ) {
+    const changed = yield* Ref.modify(stateRef, (previous) =>
+      Equal.equals(previous, next) ? [false, previous] : [true, next],
+    );
+    if (changed) yield* PubSub.publish(changes, next);
+  });
+
+  // Serialized so a slow probe of old settings cannot resurrect a removed server.
+  const refreshLock = yield* Semaphore.make(1);
+  const refresh = Effect.fn("InferenceServerRegistry.refresh")(
+    function* (only?: InferenceServerId) {
+      const settings = yield* settingsService.getSettings.pipe(
+        Effect.orElseSucceed((): ServerSettings | null => null),
+      );
+      if (settings === null) return yield* Ref.get(stateRef);
+      const previous = new Map(
+        (yield* Ref.get(stateRef)).map((snapshot) => [snapshot.id, snapshot]),
+      );
+      const entries = Object.entries(settings.inferenceServers).map(
+        ([rawId, config]) => [InferenceServerId.make(rawId), config] as const,
+      );
+      const isTarget = (id: InferenceServerId) => only === undefined || only === id;
+      // New servers show as checking until their first probe lands.
+      yield* publish(
+        entries.map(
+          ([id, config]) =>
+            previous.get(id) ?? {
+              id,
+              displayName: displayNameOf(id, config),
+              baseUrl: parseBaseUrl(config.baseUrl).display,
+              enabled: config.enabled,
+              status: "checking" as const,
+              checkedAt: null,
+              models: [],
+            },
+        ),
+      );
+      const snapshots = yield* Effect.forEach(
+        entries,
+        ([id, config]) =>
+          isTarget(id) || previous.get(id) === undefined
+            ? probe(id, config)
+            : Effect.succeed(previous.get(id)!),
+        { concurrency: 4 },
+      );
+      yield* publish(snapshots);
+      return snapshots;
+    },
+    (effect) => refreshLock.withPermits(1)(effect),
+    Effect.catchCause((cause) =>
+      Effect.logError("inference server refresh failed", { cause }).pipe(
+        Effect.andThen(Ref.get(stateRef)),
+      ),
+    ),
+  );
+
+  yield* settingsService.streamChanges.pipe(
+    Stream.map((settings) => settings.inferenceServers),
+    Stream.changes,
+    Stream.runForEach(() => refresh()),
+    Effect.forkScoped,
+  );
+
+  const interval = settingsService.getSettings.pipe(
+    Effect.map(
+      (settings) => resolveServerBackgroundActivitySettings(settings).providerHealthRefreshInterval,
+    ),
+    Effect.orElseSucceed(() => DEFAULT_PROVIDER_HEALTH_REFRESH_INTERVAL),
+  );
+  yield* Effect.forever(
+    interval.pipe(
+      Effect.flatMap((wait) => Effect.sleep(Duration.isPositive(wait) ? wait : "60 seconds")),
+      Effect.andThen(interval),
+      Effect.flatMap((current) =>
+        Duration.isPositive(current)
+          ? backgroundPolicy.shouldRunScopeWork({ type: "provider-status" })
+          : Effect.succeed(false),
+      ),
+      Effect.flatMap((shouldRun) => (shouldRun ? refresh() : Effect.void)),
+      Effect.ignoreCause({ log: true }),
+    ),
+  ).pipe(Effect.forkScoped);
+
+  // Startup never waits on a server that may be asleep or gone.
+  yield* refresh().pipe(Effect.forkScoped);
+
+  return InferenceServerRegistry.of({
+    current: Ref.get(stateRef),
+    refresh,
+    get streamChanges() {
+      return Stream.unwrap(
+        Effect.gen(function* () {
+          const subscription = yield* PubSub.subscribe(changes);
+          const snapshot = yield* Ref.get(stateRef);
+          return Stream.concat(Stream.make(snapshot), Stream.fromSubscription(subscription)).pipe(
+            Stream.changes,
+          );
+        }),
+      );
+    },
+  });
+});
+
+export const layer = Layer.effect(InferenceServerRegistry, make).pipe(
+  Layer.provide(SecretResolverLayer.layer),
+);

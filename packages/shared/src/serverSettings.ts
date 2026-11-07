@@ -7,6 +7,7 @@ import {
   defaultInstanceIdForDriver,
   globalIdleCompaction,
   type IdleCompactionMode,
+  isLocalProviderInstance,
   isProviderAvailable,
   isUnconfiguredDefaultInstanceEnabled,
   resolveProjectProviderInstanceEnabled,
@@ -76,12 +77,13 @@ export function fallbackTextGenerationModelSelection(
     readonly includeConfiguredInstances?: boolean;
     readonly defaultModelSelection?: ModelSelection | null;
     readonly policy?: TextGenerationFallback;
+    readonly inferenceServers?: ServerSettings["inferenceServers"];
   },
 ): ModelSelection | null {
   const policy = options?.policy ?? "any";
   if (policy === "none") return null;
   const isLocal = (instanceId: ProviderInstanceId) =>
-    providerInstances[instanceId]?.inference === "local";
+    isLocalProviderInstance(providerInstances[instanceId], options?.inferenceServers);
   const allCandidates = [
     ...TEXT_GENERATION_FALLBACK_DRIVERS.map(
       (driver) => [defaultInstanceIdForDriver(driver), driver] as const,
@@ -96,8 +98,8 @@ export function fallbackTextGenerationModelSelection(
   ];
   const localCandidates = allCandidates.filter(([instanceId]) => isLocal(instanceId));
   // Users who never marked an instance local keep the cross-provider fallback they had.
-  const anyMarkedLocal = Object.values(providerInstances).some(
-    (instance) => instance?.inference === "local",
+  const anyMarkedLocal = Object.values(providerInstances).some((instance) =>
+    isLocalProviderInstance(instance, options?.inferenceServers),
   );
   const candidates =
     policy === "local" && anyMarkedLocal
@@ -133,6 +135,31 @@ export function localTextGenerationModelSelection(
     if (model) return { instanceId: provider.instanceId, model: model.slug };
   }
   return null;
+}
+
+// Each driver names its reasoning control; ACP agents mark theirs with the reasoning role.
+const REASONING_OPTION_IDS = new Set(["thinking", "effort", "reasoningEffort"]);
+
+/** Background writing needs little reasoning: asks for "low" where the selected model offers it. */
+export function withLowReasoningOption(
+  selection: ModelSelection,
+  provider: ServerProvider | undefined,
+): ModelSelection {
+  const model = provider?.models.find((candidate) => candidate.slug === selection.model);
+  const descriptor = model?.capabilities?.optionDescriptors?.find(
+    (candidate) =>
+      candidate.type === "select" &&
+      (candidate.role === "reasoning" || REASONING_OPTION_IDS.has(candidate.id)) &&
+      candidate.options.some((option) => option.id === "low"),
+  );
+  if (descriptor === undefined) return selection;
+  return {
+    ...selection,
+    options: [
+      ...(selection.options ?? []).filter((option) => option.id !== descriptor.id),
+      { id: descriptor.id, value: "low" },
+    ],
+  };
 }
 
 const sameSelection = (left: ModelSelection | null | undefined, right: ModelSelection) =>

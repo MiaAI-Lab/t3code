@@ -24,8 +24,11 @@ const row = (
   model: "GLM-5.3-Flash",
   threadId: thread,
   runId: RunId.make("run-1"),
+  parentRunId: null,
   purpose: "interactive",
   status: "completed",
+  fallbackFrom: null,
+  staticPrefixHash: null,
   receivedAt: 0,
   queueWaitMs: null,
   ttftMs: null,
@@ -79,6 +82,7 @@ it.effect("aggregates by server, model, and purpose, excluding missing measureme
         failed: 1,
         promptTokens: 60,
         cachedPromptTokens: 40,
+        promptTokensWithCacheData: 50,
         completionTokens: 30,
         queueWaitMs: { n: 3, p50: 20, p95: 30 },
         ttftMs: { n: 2, p50: 100, p95: 300 },
@@ -121,6 +125,43 @@ it.effect("returns a thread's latest completed request", () =>
       ttftMs: 40,
       decodeTokensPerSecond: 20,
     });
+  }).pipe(Effect.provide(layer)),
+);
+
+it.effect("compares a thread's latest request with its previous one", () =>
+  Effect.gen(function* () {
+    const log = yield* InferenceRequests.InferenceRequestLog;
+    const spark = InferenceServerId.make("spark1");
+    yield* log.record(row(1, { receivedAt: 1_000, staticPrefixHash: "aaaa" }));
+    const first = yield* log.latestForThread(thread);
+    expect(first).not.toHaveProperty("serverChanged");
+    expect(first).not.toHaveProperty("staticPrefixChanged");
+
+    yield* log.record(
+      row(2, {
+        receivedAt: 2_000,
+        serverId: spark,
+        fallbackFrom: rtx,
+        staticPrefixHash: "bbbb",
+        parentRunId: RunId.make("run-parent"),
+      }),
+    );
+    expect(yield* log.latestForThread(thread)).toMatchObject({
+      serverId: spark,
+      fallbackFrom: rtx,
+      serverChanged: true,
+      staticPrefixChanged: true,
+    });
+
+    yield* log.record(row(3, { receivedAt: 3_000, serverId: spark, staticPrefixHash: "bbbb" }));
+    const third = yield* log.latestForThread(thread);
+    expect(third).toMatchObject({ serverChanged: false, staticPrefixChanged: false });
+    expect(third).not.toHaveProperty("fallbackFrom");
+
+    yield* log.record(row(4, { receivedAt: 4_000, serverId: spark }));
+    const unmeasured = yield* log.latestForThread(thread);
+    expect(unmeasured).toMatchObject({ serverChanged: false });
+    expect(unmeasured).not.toHaveProperty("staticPrefixChanged");
   }).pipe(Effect.provide(layer)),
 );
 

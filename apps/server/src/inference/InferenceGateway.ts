@@ -289,8 +289,11 @@ const make = Effect.gen(function* () {
         model: prepared.model,
         threadId: caller.threadId ?? null,
         runId,
+        parentRunId: null,
         purpose,
         status,
+        fallbackFrom: null,
+        staticPrefixHash: null,
         receivedAt,
         queueWaitMs: marks.admittedAt === undefined ? null : marks.admittedAt - receivedAt,
         ttftMs:

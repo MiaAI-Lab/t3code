@@ -2,6 +2,11 @@ import { ChatGptUsageButton } from "../settings/ChatGptUsageButton";
 import { usesChatGptSharing } from "@t3tools/shared/usageLimits";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useAtomValue } from "@effect/atom-react";
+import {
+  ESTIMATED_API_SPEND_LABEL,
+  localUsageModelCost,
+  type LocalUsageModels,
+} from "@t3tools/client-runtime/state/provider-instance-display";
 import { Atom } from "effect/reactivity";
 import {
   ProviderDriverKind,
@@ -37,6 +42,7 @@ import { cn } from "../../lib/utils";
 import { usePrimarySettings } from "../../hooks/useSettings";
 import { resolveHour12 } from "../../timestampFormat";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
+import { hasEnabledInferenceServerAtom, localUsageModelsAtom } from "../../state/inference";
 import { environmentPresentations } from "../../state/presentation";
 import { primaryServerKeybindingsAtom, serverEnvironment } from "../../state/server";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
@@ -109,6 +115,7 @@ import {
 } from "./usageProviders";
 import {
   readUsagePagePreferences,
+  resolveUsagePagePreferences,
   saveUsagePagePreferences,
   type UsagePagePreferences,
 } from "./usagePagePreferences";
@@ -181,7 +188,7 @@ function UsageModelDialogHost({
 }
 
 export function UsagePage() {
-  const [preferences, setPreferences] = useState(readUsagePagePreferences);
+  const [savedPreferences, setSavedPreferences] = useState(readUsagePagePreferences);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const hour12 = usePrimarySettings((settings) => resolveHour12(settings.timestampFormat));
   const shortcutTitle = (
@@ -192,23 +199,17 @@ export function UsagePage() {
     });
     return shortcut ? `${option.label} (${shortcut})` : option.label;
   };
-  const [windowSelection, setWindowSelection] = useState(() => ({
-    days: preferences.windowDays,
-    window: makeWindow(
-      preferences.windowDays,
-      undefined,
-      preferences.windowDays === 1 ? "hour" : "day",
-    ),
-  }));
-  const metric = preferences.metric;
-  const showingLimits = metric === "limits";
+  const [windowSelection, setWindowSelection] = useState(() => {
+    const days = resolveUsagePagePreferences(savedPreferences, false).windowDays;
+    return { days, window: makeWindow(days, undefined, days === 1 ? "hour" : "day") };
+  });
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [limitsNow, setLimitsNow] = useState(() => Date.now());
   const refreshingRef = useRef(false);
   const [priceDialog, setPriceDialog] = useState<{ readonly model?: string } | null>(null);
   const [selectedEnvironmentIds, setSelectedEnvironmentIds] =
     useState<ReadonlySet<EnvironmentId> | null>(null);
-  const hiddenProviders = new Set(preferences.hiddenProviders);
+  const hiddenProviders = new Set(savedPreferences?.hiddenProviders);
   const { days: windowDays, window } = windowSelection;
   const isPast24Hours = windowDays === 1;
   const {
@@ -219,6 +220,14 @@ export function UsagePage() {
     isPartial,
     refresh,
   } = useUsage(window, selectedEnvironmentIds, hiddenProviders);
+  const selectedIdsJson = JSON.stringify(
+    selectedEnvironments.map((environment) => environment.environmentId),
+  );
+  const hasEnabledInferenceServer = useAtomValue(hasEnabledInferenceServerAtom(selectedIdsJson));
+  const localModels = useAtomValue(localUsageModelsAtom(selectedIdsJson));
+  const preferences = resolveUsagePagePreferences(savedPreferences, hasEnabledInferenceServer);
+  const metric = preferences.metric;
+  const showingLimits = metric === "limits";
   const merged = shown?.merged ?? answeredUsage;
   const shownWindow = shown?.window ?? window;
   const shownHourly = shownWindow.resolution === "hour";
@@ -241,7 +250,7 @@ export function UsagePage() {
 
   const updatePreferences = (patch: Partial<UsagePagePreferences>) => {
     const nextPreferences = { ...preferences, ...patch };
-    setPreferences(nextPreferences);
+    setSavedPreferences(nextPreferences);
     saveUsagePagePreferences(nextPreferences);
   };
   const selectWindow = (days: number) => {
@@ -573,6 +582,7 @@ export function UsagePage() {
                   void refreshLimits(false, true);
                 }}
                 onSelectModel={selectUsageModel}
+                localModels={localModels}
               />
             )}
             {!showingLimits && selectedEnvironments.length > 0 ? (
@@ -600,6 +610,7 @@ export function UsagePage() {
             hour12,
           }}
           onSetPrice={(model) => setPriceDialog({ model })}
+          localModels={localModels}
         />
       )}
       {priceDialog ? (
@@ -631,6 +642,7 @@ function UsageOverview({
   showChatGptSharing,
   onCursorEnabled,
   onSelectModel,
+  localModels,
 }: {
   readonly merged: MergedUsage;
   readonly shownWindow: UsageSummaryInput;
@@ -646,6 +658,7 @@ function UsageOverview({
   readonly showChatGptSharing: boolean;
   readonly onCursorEnabled: () => void;
   readonly onSelectModel: (key: string) => void;
+  readonly localModels: LocalUsageModels;
 }) {
   const [breakdown, setBreakdown] = useState<"model" | "time">("model");
   const shownHourly = shownWindow.resolution === "hour";
@@ -954,7 +967,11 @@ function UsageOverview({
                   const key = `${model.provider}:${model.model}`;
                   const value = metric === "tokens" ? model.totalTokens : model.costUsd;
                   const hasBar = value > 0 && breakdownPeak > 0;
-                  const share = modelShare(model, metric === "tokens" ? "tokens" : "cost");
+                  const localCost = localUsageModelCost(model.model, localModels);
+                  const share =
+                    metric !== "tokens" && localCost === "local"
+                      ? null
+                      : modelShare(model, metric === "tokens" ? "tokens" : "cost");
                   const rowFigures = figureClass(loadingProviders.has(model.provider));
                   return (
                     <tr
@@ -987,8 +1004,18 @@ function UsageOverview({
                         ) : null}
                       </td>
                       <td className={cn("py-2.5 pl-6 text-foreground", rowFigures)}>
-                        {isModelCostUnknown(model) ? (
+                        {localCost === "local" ? (
+                          <span className="text-muted-foreground">Local</span>
+                        ) : isModelCostUnknown(model) ? (
                           <span className="text-muted-foreground">Unpriced</span>
+                        ) : localCost === "estimate" ? (
+                          <Tooltip>
+                            {/* Above the row button's full-row hit area, so it can be hovered. */}
+                            <TooltipTrigger render={<span className="relative" />}>
+                              ~{formatUsd(model.costUsd)}
+                            </TooltipTrigger>
+                            <TooltipPopup>{ESTIMATED_API_SPEND_LABEL}</TooltipPopup>
+                          </Tooltip>
                         ) : (
                           formatUsd(model.costUsd)
                         )}

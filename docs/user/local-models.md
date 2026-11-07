@@ -17,6 +17,10 @@ concurrent requests**. T3 Code checks each server and shows whether it is ready,
 serves with their context windows, and its current load when the server reports one. **Refresh**
 checks again.
 
+A server can name another as its **Fallback server**. When the first cannot take a request before
+it is sent, for example because it is down, T3 Code's gateway sends the request to the fallback if
+it serves the same model. A request that already started is never moved.
+
 Then link a provider instance to a server with the **Inference server** setting on its card in
 **Settings → Providers**. A linked instance counts as local while its server is enabled, and the
 model picker shows the server's name and readiness next to the provider, such as `Pi · rtx ·
@@ -45,9 +49,17 @@ Linked Pi instances also offer Pi a lean set of T3 tools by default; see
 
 The **Local compute** section of **Usage → Cost** and **Usage → Tokens** totals those records by server, model and purpose (chat or background
 writing) for the last day or week: requests, failures, tokens, the share of the prompt served
-from cache, and median and 95th percentile queue wait, time to first token and decode speed. In
-a thread, the details panel's **Last request** row shows the most recent request's prompt size
-and time to first token.
+from cache, and median and 95th percentile queue wait, time to first token and decode speed. The
+cached share counts only requests whose server reported cache use, and shows `–` when none did.
+Usage opens on **Tokens** when you have an enabled inference server, until you pick a tab
+yourself. Local models show **Local** instead of a price; set a price for one in Usage to see an
+estimated equivalent API spend.
+
+In a thread, the details panel's **Last request** row shows the most recent request's prompt
+size, cached share and time to first token. Its tooltip names the server that answered,
+including when a fallback did, and notes when the tool prefix changed or a different server
+answered than for the previous request. Compare those notes with the cached share when a
+request starts slowly.
 
 ## Choose a provider
 

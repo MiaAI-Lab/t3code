@@ -5,7 +5,11 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { groupLocalCompute, sumLocalCompute } from "./UsageLocalCompute.logic";
+import {
+  groupLocalCompute,
+  localComputeCachedShare,
+  sumLocalCompute,
+} from "./UsageLocalCompute.logic";
 
 const none = { n: 0, p50: null, p95: null };
 
@@ -14,6 +18,7 @@ function row(
   model: string,
   purpose: InferenceUsageRow["purpose"],
   requests: number,
+  promptTokensWithCacheData?: number,
 ): InferenceUsageRow {
   return {
     serverId: InferenceServerId.make(serverId),
@@ -23,6 +28,7 @@ function row(
     failed: 1,
     promptTokens: requests * 100,
     cachedPromptTokens: requests * 50,
+    ...(promptTokensWithCacheData === undefined ? {} : { promptTokensWithCacheData }),
     completionTokens: requests * 10,
     queueWaitMs: none,
     ttftMs: none,
@@ -39,9 +45,9 @@ describe("groupLocalCompute", () => {
   it("groups purposes under their server and model, busiest first, keeping removed servers", () => {
     const groups = groupLocalCompute(
       [
-        row("rtx", "glm", "background", 2),
+        row("rtx", "glm", "background", 2, 200),
         row("gone", "qwen", "interactive", 9),
-        row("rtx", "glm", "interactive", 4),
+        row("rtx", "glm", "interactive", 4, 250),
         row("rtx", "glm", "scheduled", 1),
       ],
       [rtx],
@@ -60,6 +66,7 @@ describe("groupLocalCompute", () => {
       failed: 3,
       promptTokens: 700,
       cachedPromptTokens: 350,
+      promptTokensWithCacheData: 450,
       completionTokens: 70,
     });
   });
@@ -67,5 +74,17 @@ describe("groupLocalCompute", () => {
   it("sums nothing to zero", () => {
     expect(groupLocalCompute([], null)).toEqual([]);
     expect(sumLocalCompute([]).requests).toBe(0);
+  });
+
+  it("shares cached tokens only over requests that reported cache use", () => {
+    expect(localComputeCachedShare(sumLocalCompute([row("rtx", "glm", "interactive", 2)]))).toBe(
+      null,
+    );
+    expect(
+      localComputeCachedShare({ cachedPromptTokens: 150, promptTokensWithCacheData: 300 }),
+    ).toBe(0.5);
+    expect(localComputeCachedShare({ cachedPromptTokens: 0, promptTokensWithCacheData: 0 })).toBe(
+      null,
+    );
   });
 });

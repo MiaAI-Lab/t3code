@@ -19,27 +19,25 @@ raw provider events, or child-agent output.
 
 ## Relay connection diagnostics
 
-T3 Code sends relay connection traces to Axiom to diagnose T3 Connect connectivity. These are
+T3 Code can send relay connection traces to Axiom to diagnose T3 Connect connectivity. These are
 separate from product events. Depending on the client version, traces can include connection
 timings, environment identifiers and the connected machine's name. Failed spans can include error
 messages and stack traces; error text can quote a value the app was handling.
 
-Relay tracing from the server stays on when product events are off. To stop it, set
-`T3CODE_TELEMETRY_ENABLED=false` in the server's environment before starting it, or turn
-OpenTelemetry export off with `T3CODE_OTEL_SDK_DISABLED` or `OTEL_SDK_DISABLED`. Builds without a
-relay tracing endpoint configured send no relay traces.
+Relay tracing is off unless you opt in with the same `T3CODE_TELEMETRY_ENABLED=true` that turns on
+product events. Turning OpenTelemetry export off with `T3CODE_OTEL_SDK_DISABLED` or
+`OTEL_SDK_DISABLED` also stops it. Builds without a relay tracing endpoint configured send no relay
+traces. T3 Connect works the same with tracing off.
 
-An administrator can turn product events and relay tracing off in the server and desktop app with
-a [managed policy](./managed-policy.md#other-capabilities). This does not control traces sent by
-separate browser or mobile clients.
+An administrator can keep product events and relay tracing off in the server and desktop app with
+a [managed policy](./managed-policy.md#other-capabilities).
 
 The desktop app reads `T3CODE_TELEMETRY_ENABLED` from your shell profile (for example `~/.zshrc`) on macOS and
 Linux, so export it there and restart the app to opt in or out. On Windows, set it as a user
 environment variable.
 
-The web app in a browser, including one the `t3` CLI opens, does not read these environment
-variables. When its build has relay tracing configured, it sends its own connection traces even
-if the server has opted out. The browser app has no relay tracing toggle.
+The web app in a browser, including one the `t3` CLI opens, cannot read these environment variables,
+so it sends no relay traces.
 
 ## Mobile app diagnostics
 
@@ -85,8 +83,8 @@ outbound calls without being asked:
   the dialog to switch update tracks.
 - **Desktop app updates**: packaged desktop builds with an update feed check it 15 seconds after
   start and every 4 minutes. Set `T3CODE_DISABLE_AUTO_UPDATE=1` to turn this off.
-- **Relay connection traces** and **mobile diagnostics**, described above, each with their own
-  controls.
+- **Mobile diagnostics** and the mobile app's relay connection traces, described above. Relay
+  traces from the server, desktop app, and browser are off unless you opt in.
 
 ## Export diagnostics to your own receiver
 

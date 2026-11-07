@@ -60,6 +60,8 @@ export interface InferenceServerDraft {
   readonly baseUrl: string;
   readonly apiKey: string | SecretReference;
   readonly maxConcurrency: string;
+  /** Another registered server's id, or "" for none. */
+  readonly fallbackServerId: string;
 }
 
 export const EMPTY_INFERENCE_SERVER_DRAFT: InferenceServerDraft = {
@@ -67,6 +69,7 @@ export const EMPTY_INFERENCE_SERVER_DRAFT: InferenceServerDraft = {
   baseUrl: "",
   apiKey: "",
   maxConcurrency: "",
+  fallbackServerId: "",
 };
 
 export function draftFromInferenceServer(config: InferenceServerConfig): InferenceServerDraft {
@@ -76,6 +79,7 @@ export function draftFromInferenceServer(config: InferenceServerConfig): Inferen
     // A saved key arrives redacted; sending it back unchanged keeps it.
     apiKey: config.apiKey,
     maxConcurrency: config.maxConcurrency === undefined ? "" : String(config.maxConcurrency),
+    fallbackServerId: config.fallbackServerId ?? "",
   };
 }
 
@@ -118,6 +122,15 @@ export function inferenceServerFromDraft(
     issues.maxConcurrency = "Enter a whole number of 1 or more, or leave it empty.";
   }
 
+  const fallbackServerId =
+    draft.fallbackServerId === "" ? undefined : (draft.fallbackServerId as InferenceServerId);
+  if (
+    fallbackServerId !== undefined &&
+    (fallbackServerId === id || !existingIds.has(fallbackServerId))
+  ) {
+    issues.fallbackServerId = "Choose another registered server, or none.";
+  }
+
   const apiKey = typeof draft.apiKey === "string" ? draft.apiKey.trim() : draft.apiKey;
   if (id === null || Result.isFailure(baseUrl) || Object.keys(issues).length > 0) {
     return Result.fail(issues);
@@ -130,6 +143,7 @@ export function inferenceServerFromDraft(
       apiKey,
       enabled: target.mode === "edit" ? target.enabled : true,
       ...(maxConcurrency === undefined ? {} : { maxConcurrency }),
+      ...(fallbackServerId === undefined ? {} : { fallbackServerId }),
     },
   });
 }
@@ -158,6 +172,38 @@ export function describeInferenceModelContext(model: InferenceServerModel): stri
   return trained !== undefined && trained !== served
     ? `${base} (trained ${formatTokens(trained)})`
     : base;
+}
+
+/** The summary-line note for a server's fallback, or null when it has none. */
+export function describeInferenceServerFallback(
+  config: Pick<InferenceServerConfig, "fallbackServerId">,
+  servers: InferenceServers,
+): string | null {
+  const link = resolveInferenceServerLink(config.fallbackServerId, servers);
+  switch (link.kind) {
+    case "none":
+      return null;
+    case "enabled":
+      return `falls back to ${link.name}`;
+    case "disabled":
+      return `falls back to ${link.name} (disabled)`;
+    case "missing":
+      return `falls back to ${link.id} (not registered)`;
+  }
+}
+
+/** Removes a server and, in the same patch, clears it as the fallback of the others. */
+export function inferenceServerRemovalPatch(
+  servers: InferenceServers | undefined,
+  id: InferenceServerId,
+): Record<InferenceServerId, InferenceServerConfig | null> {
+  const patch: Record<InferenceServerId, InferenceServerConfig | null> = { [id]: null };
+  for (const [otherId, config] of presentInferenceServers(servers)) {
+    if (otherId === id || config.fallbackServerId !== id) continue;
+    const { fallbackServerId: _removed, ...rest } = config;
+    patch[otherId] = rest;
+  }
+  return patch;
 }
 
 export function describeInferenceServerLoad(

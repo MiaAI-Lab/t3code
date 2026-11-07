@@ -1,4 +1,4 @@
-import type { InferenceThreadLastRequest } from "@t3tools/contracts";
+import type { InferenceServerId, InferenceThreadLastRequest } from "@t3tools/contracts";
 import { formatPercent, formatTokens } from "@t3tools/shared/usageFormat";
 
 /** Shown for a measurement the gateway did not record; an en dash, as product copy avoids em dashes. */
@@ -39,4 +39,31 @@ export function formatLastInferenceRequest(last: InferenceThreadLastRequest): st
     formatTokensPerSecond(last.decodeTokensPerSecond),
     `waited ${formatMeasuredSeconds(last.queueWaitMs)}`,
   ].join(" · ");
+}
+
+/** "cached 80%" for the compact row, or null when the server did not report cache use. */
+export function formatLastRequestCached(last: InferenceThreadLastRequest): string | null {
+  const share = cachedPromptShare(last.promptTokens, last.cachedPromptTokens);
+  return share === null ? null : `cached ${formatCachedShare(share)}`;
+}
+
+/** "Served by spark1 (fallback from rtx)" */
+export function formatLastRequestServer(
+  last: InferenceThreadLastRequest,
+  serverName: (id: InferenceServerId) => string,
+): string {
+  const served = `Served by ${serverName(last.serverId)}`;
+  return last.fallbackFrom === undefined
+    ? served
+    : `${served} (fallback from ${serverName(last.fallbackFrom)})`;
+}
+
+/** What differs from the thread's previous request. These are observations; a cache miss can have other causes. */
+export function lastRequestObservations(last: InferenceThreadLastRequest): ReadonlyArray<string> {
+  return [
+    ...(last.staticPrefixChanged === true
+      ? ["Tool prefix changed since the previous request"]
+      : []),
+    ...(last.serverChanged === true ? ["Different server than the previous request"] : []),
+  ];
 }

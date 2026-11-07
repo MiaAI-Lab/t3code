@@ -6,7 +6,6 @@ import { useState } from "react";
 
 import {
   MISSING_MEASUREMENT,
-  cachedPromptShare,
   formatCachedShare,
   formatMeasuredSeconds,
   formatTokensPerSecond,
@@ -19,11 +18,13 @@ import {
   INFERENCE_PURPOSE_LABELS,
   LOCAL_COMPUTE_WINDOW_LABELS,
   groupLocalCompute,
+  localComputeCachedShare,
+  sumLocalCompute,
   type LocalComputeTotals,
 } from "./UsageLocalCompute.logic";
 
 const WINDOWS: ReadonlyArray<InferenceUsageWindow> = ["24h", "7d"];
-const COLUMN_COUNT = 7;
+const COLUMN_COUNT = 8;
 
 /** Requests T3's gateway sent to this user's own inference servers. */
 export function UsageLocalCompute({
@@ -137,7 +138,8 @@ function LocalComputeTable({
           <tr className="border-b border-border text-right text-xs text-muted-foreground">
             <th className="py-2 pl-2 text-left font-normal">Server · model</th>
             <th className="py-2 pl-4 font-normal">Requests (failed)</th>
-            <th className="py-2 pl-4 font-normal">Prompt (cached)</th>
+            <th className="py-2 pl-4 font-normal">Prompt</th>
+            <th className="py-2 pl-4 font-normal">Cached</th>
             <th className="py-2 pl-4 font-normal">Output</th>
             <th className="py-2 pl-4 font-normal">TTFT p50 / p95</th>
             <th className="py-2 pl-4 font-normal">Decode p50</th>
@@ -207,7 +209,7 @@ function LocalComputeGroupRows({
               <td className="py-1.5 pl-6 text-left text-xs">
                 {INFERENCE_PURPOSE_LABELS[row.purpose]}
               </td>
-              <CountCells totals={row} />
+              <CountCells totals={sumLocalCompute([row])} />
               <MeasuredCells row={row} />
             </tr>
           ))}
@@ -216,9 +218,6 @@ function LocalComputeGroupRows({
 }
 
 function CountCells({ totals }: { readonly totals: LocalComputeTotals }) {
-  const cached = formatCachedShare(
-    cachedPromptShare(totals.promptTokens, totals.cachedPromptTokens),
-  );
   return (
     <>
       <td className="py-2 pl-4">
@@ -227,10 +226,8 @@ function CountCells({ totals }: { readonly totals: LocalComputeTotals }) {
           ({formatCount(totals.failed)})
         </span>
       </td>
-      <td className="py-2 pl-4">
-        {formatTokens(totals.promptTokens)}
-        <span className="ms-1 text-xs">({cached})</span>
-      </td>
+      <td className="py-2 pl-4">{formatTokens(totals.promptTokens)}</td>
+      <td className="py-2 pl-4">{formatCachedShare(localComputeCachedShare(totals))}</td>
       <td className="py-2 pl-4">{formatTokens(totals.completionTokens)}</td>
     </>
   );

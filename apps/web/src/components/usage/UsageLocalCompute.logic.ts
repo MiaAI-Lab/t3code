@@ -27,6 +27,8 @@ export interface LocalComputeTotals {
   readonly failed: number;
   readonly promptTokens: number;
   readonly cachedPromptTokens: number;
+  /** Prompt tokens of requests whose server reported cache use; older servers omit it. */
+  readonly promptTokensWithCacheData: number;
   readonly completionTokens: number;
 }
 
@@ -46,10 +48,27 @@ export function sumLocalCompute(rows: ReadonlyArray<InferenceUsageRow>): LocalCo
       failed: totals.failed + row.failed,
       promptTokens: totals.promptTokens + row.promptTokens,
       cachedPromptTokens: totals.cachedPromptTokens + row.cachedPromptTokens,
+      promptTokensWithCacheData:
+        totals.promptTokensWithCacheData + (row.promptTokensWithCacheData ?? 0),
       completionTokens: totals.completionTokens + row.completionTokens,
     }),
-    { requests: 0, failed: 0, promptTokens: 0, cachedPromptTokens: 0, completionTokens: 0 },
+    {
+      requests: 0,
+      failed: 0,
+      promptTokens: 0,
+      cachedPromptTokens: 0,
+      promptTokensWithCacheData: 0,
+      completionTokens: 0,
+    },
   );
+}
+
+/** Cached over prompt tokens of requests that reported cache use; null when none did. */
+export function localComputeCachedShare(
+  totals: Pick<LocalComputeTotals, "cachedPromptTokens" | "promptTokensWithCacheData">,
+): number | null {
+  if (totals.promptTokensWithCacheData <= 0) return null;
+  return Math.min(1, totals.cachedPromptTokens / totals.promptTokensWithCacheData);
 }
 
 /** Rows grouped by server and model, busiest first; a removed server keeps its id as its name. */

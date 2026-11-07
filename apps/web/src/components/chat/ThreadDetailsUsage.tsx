@@ -26,9 +26,13 @@ import { formatContextWindowTokens } from "../../lib/contextWindow";
 import {
   MISSING_MEASUREMENT,
   formatLastInferenceRequest,
+  formatLastRequestCached,
+  formatLastRequestServer,
   formatMeasuredSeconds,
+  lastRequestObservations,
 } from "../../lib/inferenceMetrics";
 import { hasInferenceServersAtom, threadInferenceRequestAtom } from "../../state/inference";
+import { serverEnvironment } from "../../state/server";
 import { cn } from "../../lib/utils";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -162,10 +166,16 @@ export function ThreadDetailsLastRequest(thread: ThreadKey) {
 
 function LastRequestSection({ environmentId, threadId }: ThreadKey) {
   const result = useAtomValue(threadInferenceRequestAtom({ environmentId, threadId }));
+  const servers = useAtomValue(serverEnvironment.inferenceServersValueAtom(environmentId));
   const last = AsyncResult.getOrElse(result, () => null)?.last ?? null;
   if (last === null) return null;
   const summary = formatLastInferenceRequest(last);
   const prompt = last.promptTokens === null ? MISSING_MEASUREMENT : formatTokens(last.promptTokens);
+  const cached = formatLastRequestCached(last);
+  const served = formatLastRequestServer(
+    last,
+    (id) => servers?.find((server) => server.id === id)?.displayName ?? id,
+  );
   return (
     <ThreadDetailsSection
       headingId="thread-details-last-request-heading"
@@ -177,14 +187,24 @@ function LastRequestSection({ environmentId, threadId }: ThreadKey) {
           label="Last request"
           fill={null}
           tone={null}
-          value={`${prompt} prompt · TTFT ${formatMeasuredSeconds(last.ttftMs)}`}
+          value={[
+            `${prompt} prompt`,
+            ...(cached === null ? [] : [cached]),
+            `TTFT ${formatMeasuredSeconds(last.ttftMs)}`,
+          ].join(" · ")}
           ariaValue={summary}
           tooltip={
             <>
               <span className="text-foreground">{summary}</span>
               <span className="text-muted-foreground">
-                {last.model} · Measured by T3&apos;s gateway
+                {last.model} · {served}
               </span>
+              {lastRequestObservations(last).map((observation) => (
+                <span key={observation} className="text-muted-foreground">
+                  {observation}
+                </span>
+              ))}
+              <span className="text-muted-foreground">Measured by T3&apos;s gateway</span>
             </>
           }
         />

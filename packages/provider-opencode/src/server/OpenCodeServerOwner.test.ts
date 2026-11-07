@@ -24,9 +24,11 @@ const makeRuntime = Effect.gen(function* () {
   const failNextStart = yield* Ref.make(false);
   const started = yield* Deferred.make<void>();
   const closed = yield* Deferred.make<void>();
+  const environments = yield* Ref.make<ReadonlyArray<NodeJS.ProcessEnv | undefined>>([]);
   const runtime: OpenCodeRuntime.OpenCodeRuntime["Service"] = {
-    startOpenCodeServerProcess: () =>
+    startOpenCodeServerProcess: (input) =>
       Effect.gen(function* () {
+        yield* Ref.update(environments, (seen) => [...seen, input.environment]);
         if (yield* Ref.getAndSet(failNextStart, false)) {
           return yield* new OpenCodeRuntime.OpenCodeRuntimeError({
             operation: "startOpenCodeServerProcess",
@@ -54,18 +56,26 @@ const makeRuntime = Effect.gen(function* () {
     loadOpenCodeInventory: unusedRuntimeMethod,
     loadOpenCodeSkills: unusedRuntimeMethod,
   };
-  return { runtime, starts, closes, failNextStart, started, closed };
+  return { runtime, starts, closes, failNextStart, started, closed, environments };
 });
 
 it.effect("shares concurrent borrowers and closes after the idle TTL", () =>
   Effect.gen(function* () {
     const testRuntime = yield* makeRuntime;
     const release = yield* Deferred.make<void>();
+    const held = yield* Ref.make(0);
     yield* Effect.scoped(
       Effect.gen(function* () {
         const owner = yield* OpenCodeServerOwner.make({
           binaryPath: "opencode",
           directory: "/project",
+          environment: { BASE: "1" },
+          // Stands in for a gateway credential: held exactly as long as the process.
+          prepareEnvironment: (environment) =>
+            Effect.acquireRelease(
+              Ref.updateAndGet(held, (count) => count + 1),
+              () => Ref.update(held, (count) => count - 1),
+            ).pipe(Effect.map((token) => ({ ...environment, TOKEN: String(token) }))),
         });
         const useServer = owner.withServer((server) =>
           Deferred.await(release).pipe(Effect.as(server.url)),
@@ -77,11 +87,14 @@ it.effect("shares concurrent borrowers and closes after the idle TTL", () =>
         expect(yield* Ref.get(testRuntime.starts)).toBe(1);
         yield* Deferred.succeed(release, undefined);
         expect(yield* Fiber.join(fibers)).toEqual(["http://127.0.0.1:1", "http://127.0.0.1:1"]);
+        expect(yield* Ref.get(testRuntime.environments)).toEqual([{ BASE: "1", TOKEN: "1" }]);
+        expect(yield* Ref.get(held)).toBe(1);
         yield* TestClock.adjust(Duration.seconds(31));
         yield* Deferred.await(testRuntime.closed);
         expect(yield* Ref.get(testRuntime.closes)).toBe(1);
       }),
     ).pipe(Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, testRuntime.runtime));
+    expect(yield* Ref.get(held)).toBe(0);
   }).pipe(Effect.provide(TestClock.layer())),
 );
 

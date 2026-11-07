@@ -26,11 +26,17 @@ export class OpenCodeServerOwner extends Context.Service<
   }
 >()("@t3tools/provider-opencode/server/OpenCodeServerOwner") {}
 
+/** Runs in each server process's scope, so what it acquires lives as long as that process. */
+export type PrepareEnvironment = (
+  environment: NodeJS.ProcessEnv,
+) => Effect.Effect<NodeJS.ProcessEnv, never, Scope.Scope>;
+
 export const make = Effect.fn("OpenCodeServerOwner.make")(function* (input: {
   readonly binaryPath: string;
   readonly directory: string;
   readonly serverPassword?: string;
   readonly environment?: NodeJS.ProcessEnv;
+  readonly prepareEnvironment?: PrepareEnvironment;
   readonly verify?: (url: string) => Effect.Effect<string, OpenCodeRuntime.OpenCodeRuntimeError>;
 }) {
   const runtime = yield* OpenCodeRuntime.OpenCodeRuntime;
@@ -98,17 +104,21 @@ export const make = Effect.fn("OpenCodeServerOwner.make")(function* (input: {
           const serverScope = yield* Scope.make();
           const started = yield* Effect.exit(
             restore(
-              runtime
-                .startOpenCodeServerProcess({
+              Effect.gen(function* () {
+                const environment =
+                  input.prepareEnvironment === undefined
+                    ? input.environment
+                    : yield* input.prepareEnvironment(input.environment ?? process.env);
+                return yield* runtime.startOpenCodeServerProcess({
                   binaryPath: input.binaryPath,
                   directory: input.directory,
                   ...(input.serverPassword !== undefined
                     ? { serverPassword: input.serverPassword }
                     : {}),
-                  ...(input.environment ? { environment: input.environment } : {}),
+                  ...(environment ? { environment } : {}),
                   ...(input.verify ? { verify: input.verify } : {}),
-                })
-                .pipe(Effect.provideService(Scope.Scope, serverScope)),
+                });
+              }).pipe(Effect.provideService(Scope.Scope, serverScope)),
             ),
           );
           if (Exit.isFailure(started)) {

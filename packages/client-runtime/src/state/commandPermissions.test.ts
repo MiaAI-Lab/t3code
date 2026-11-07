@@ -67,11 +67,16 @@ const setup = Effect.gen(function* () {
 });
 
 describe("command permissions", () => {
-  it.effect("requires the destination read grant to refresh providers", () =>
+  it.effect.each([
+    WS_METHODS.serverRefreshProviders,
+    WS_METHODS.serverRefreshInferenceServers,
+    WS_METHODS.serverGetInferenceUsage,
+    WS_METHODS.serverGetThreadInferenceRequest,
+  ])("requires the destination read grant for %s", (method) =>
     Effect.scoped(
       Effect.gen(function* () {
         const registry = yield* setup;
-        const refresh = createCommandPermissions(runtime, WS_METHODS.serverRefreshProviders);
+        const refresh = createCommandPermissions(runtime, method);
         registry.set(sessions(env), AsyncResult.success(grant(true)));
         expect(registry.get(refresh.permissionAtom(env))).toBe(false);
         expect((yield* refresh.authorize(registry, env).pipe(Effect.flip))._tag).toBe(

@@ -98,6 +98,18 @@ Linked providers send their requests through T3 Code, which:
 - **Local harness evals**: `evals/mcp-tool-use` runs a local model through Pi, Codex and OpenCode
   side by side (`--harness`), recording tool-call validity, tokens and time to first token.
 
+### Projects on any machine
+
+- **Add project**: pick a machine, then click through its folders. Hosts in your `~/.ssh/config`
+  are listed too; picking one connects it. Open it from **Add project…** at the bottom of the New
+  thread list, from **Ctrl+K**, or from the sidebar.
+- **SSH machines run this fork**: the desktop app carries its own server for x64 and arm64 (such
+  as a DGX Spark) and installs it on machines you add over SSH, so inference servers, the gateway
+  and image checks work there too. Nothing is downloaded from upstream.
+- **One model server, every machine**: Settings → Inference on a machine lists the servers on
+  your other machines with **Add here**, with `localhost` already changed to the machine that runs
+  them.
+
 ### A calmer sidebar
 
 - **Thread cards read title first**: the title with its status and time, then one quiet line with
@@ -127,8 +139,13 @@ Linux desktop app (needs Node 26, pnpm, a recent Rust, `libsecret-1-dev` and Ima
 
 ```sh
 vp i
+scripts/mia-build-remote-runtime.sh spark5   # optional: server archives for SSH machines
 vp run dist:desktop:linux
 ```
+
+`mia-build-remote-runtime.sh` builds the server for x64 here and for arm64 on the host you name
+(which needs Node 26 and Rust in its home directory and a checkout at `~/src/t3code-mia`), both from
+the committed `HEAD`. Without it, the app falls back to upstream's server on SSH machines.
 
 The AppImage is written to `release/`. It does not auto-update; rebuild to update.
 

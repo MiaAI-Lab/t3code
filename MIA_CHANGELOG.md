@@ -5,6 +5,33 @@ changes on top of upstream [T3 Code](https://github.com/pingdotgg/t3code). It is
 `b90e554e0` (2026-11-06). Newest first. Every change to the client–server protocol is additive, so
 the official T3 Code mobile app keeps working against this fork's server.
 
+## 2026-11-07, night: remote machines
+
+### Added
+
+- **SSH machines run this fork's server.** Machines added over SSH used to download upstream's
+  release server, which has no inference servers, so **Add server** did nothing there. The desktop
+  app now carries its own server for linux-x64 and linux-arm64 (DGX Spark) under a fork version
+  (`0.1.7-mia.<commit time>.g<hash>`), uploads the right one over the existing SSH login when a
+  machine lacks it, and the machine installs that upload instead of downloading. A new version
+  replaces the server the app launched there the next time it connects. Build the archives with
+  `scripts/mia-build-remote-runtime.sh [arm64-host]` before `vp run dist:desktop:linux`.
+- **Add project dialog.** One window in two steps: pick a machine (this computer, connected
+  machines, or a host from `~/.ssh/config`, which connects it), then click through its folders or
+  type a path and press **Add project**. It opens from **Add project…** at the bottom of the New
+  thread list, **Ctrl+K → Add project**, and the sidebar. Cloning and empty projects moved to
+  **Ctrl+K → Clone repository** and the dialog's **Clone or create new…**.
+- **Add a server from another machine.** Settings → Inference on one machine lists the servers
+  registered on your other connected machines with **Add here**, prefilled with the address this
+  machine would use (`localhost` becomes the other machine's name). Keys are entered again.
+- Settings → Inference says when a machine's server has no inference servers, instead of an
+  **Add server** button that does nothing.
+
+### Changed
+
+- `T3CODE_CLI_SYSTEM_LIBATOMIC=1` builds a server archive without bundling libatomic, for hosts
+  that have it installed (no patchelf needed).
+
 ## 2026-11-07, evening: local-model polish
 
 ### Added

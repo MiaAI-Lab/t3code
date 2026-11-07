@@ -294,7 +294,6 @@ function openIntentView(intent: CommandPaletteOpenIntent | null): CommandPalette
 }
 
 const NEW_THREAD_NO_PROJECT_VALUE = "new-thread-in:no-project";
-const NEW_THREAD_ADD_PROJECT_VALUE = "new-thread-in:add-project";
 
 export function CommandPalette({ children }: { children: ReactNode }) {
   useCommandPaletteMount();
@@ -878,19 +877,9 @@ function OpenCommandPaletteDialog(props: {
       openingOrderThreadItems.filter((item) => item.value !== NEW_THREAD_NO_PROJECT_VALUE),
     ).map((item) => [item.value, item] as const),
   );
-  const projectThreadItems: CommandPaletteActionItem[] = [
-    {
-      kind: "action",
-      value: NEW_THREAD_ADD_PROJECT_VALUE,
-      searchTerms: ["add project", "new project", "folder", "ssh", "remote"],
-      title: "Add project…",
-      icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
-      run: async () => {
-        openAddProjectDialog();
-      },
-    },
-    ...openingOrderThreadItems.map((item) => projectJumpItems.get(item.value) ?? item),
-  ];
+  const projectThreadItems = openingOrderThreadItems.map(
+    (item) => projectJumpItems.get(item.value) ?? item,
+  );
 
   const {
     threadItems: allThreadItems,
@@ -1772,7 +1761,8 @@ function OpenCommandPaletteDialog(props: {
               {
                 value: NEW_THREAD_IN_GROUP,
                 label: "Projects",
-                items: projectThreadItems,
+                // With no projects left, adding one is the only way forward.
+                items: projectThreadItems.length > 0 ? projectThreadItems : [addProjectAction],
               },
             ]
           : currentView?.groups[0]?.value === "themes"

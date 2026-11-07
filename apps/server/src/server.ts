@@ -115,6 +115,7 @@ import * as ProviderUsageLimitsIngestion from "./provider/ProviderUsageLimitsIng
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as InferenceAdmission from "./inference/InferenceAdmission.ts";
 import * as InferenceGateway from "./inference/InferenceGateway.ts";
+import * as InferenceGatewayAccess from "./inference/InferenceGatewayAccess.ts";
 import * as InferenceServerRegistry from "./inference/InferenceServerRegistry.ts";
 import * as InferenceRequests from "./persistence/InferenceRequests.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
@@ -687,12 +688,16 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       Keybindings.layer,
       EnvironmentTheme.layer,
       UsageLimitSources.layer,
-      InferenceServerRegistry.layer,
       InferenceRequests.layer,
+      InferenceGatewayAccess.layerRefreshLinkedInstances,
     ),
   ),
   Layer.provideMerge(ProviderRegistry.layer),
   Layer.provideMerge(ProviderInstanceRegistryHydration.layer),
+  // Below provider hydration: Pi instances reach a linked server through the gateway from here.
+  Layer.provideMerge(
+    InferenceGatewayAccess.layer.pipe(Layer.provideMerge(InferenceServerRegistry.layer)),
+  ),
   // Provider hydration builds the Claude runner, which reports agents to the same scanner the
   // terminal and preview layers share.
   Layer.provideMerge(layerPortScanner),

@@ -1,5 +1,6 @@
 // No T3 imports inside the string; resolve Pi and typebox from the user's Pi install.
 import { T3_CODE_ORCHESTRATION_INSTRUCTIONS } from "@t3tools/provider-core/server/orchestrationInstructions";
+import { PI_T3_GATEWAY_PROVIDER_SNIPPET } from "./gatewayExtensionSource.ts";
 
 export const PI_T3_MCP_EXTENSION_FILENAME = "pi-t3-mcp-extension.ts";
 
@@ -240,7 +241,12 @@ function createMcpClient(endpoint: string, token: string) {
   };
 }
 
+// ---- T3 gateway provider registration (see gatewayExtensionSource.ts) ----
+${PI_T3_GATEWAY_PROVIDER_SNIPPET}
+// ---- end T3 gateway provider registration ----
+
 export default async function t3McpExtension(pi: ExtensionAPI) {
+  registerT3GatewayProvider(pi);
   // RPC has no trust prompt, so Pi skips an untrusted folder's protected resources. Session
   // replacement reruns this factory without project_trust, and T3 drops notices outside a turn,
   // so check each session's first turn. An explicit --no-approve is deliberate and stays quiet.

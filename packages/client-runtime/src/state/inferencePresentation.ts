@@ -274,11 +274,16 @@ export function formatCachedShare(share: number | null): string {
 
 /** "Last request: 12.3K prompt tokens (80% cached) · TTFT 1.2 s · 35 tok/s · waited 0.4 s" */
 export function formatLastInferenceRequest(last: InferenceThreadLastRequest): string {
+  return `Last request: ${formatLastInferenceRequestMeasures(last)}`;
+}
+
+/** "12.3K prompt tokens (80% cached) · TTFT 1.2 s · 35 tok/s · waited 0.4 s" */
+export function formatLastInferenceRequestMeasures(last: InferenceThreadLastRequest): string {
   const prompt =
     last.promptTokens === null ? MISSING_MEASUREMENT : formatUsageTokens(last.promptTokens);
   const cached = formatCachedShare(cachedPromptShare(last.promptTokens, last.cachedPromptTokens));
   return [
-    `Last request: ${prompt} prompt tokens (${cached} cached)`,
+    `${prompt} prompt tokens (${cached} cached)`,
     `TTFT ${formatMeasuredSeconds(last.ttftMs)}`,
     formatTokensPerSecond(last.decodeTokensPerSecond),
     `waited ${formatMeasuredSeconds(last.queueWaitMs)}`,

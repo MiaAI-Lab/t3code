@@ -54,6 +54,7 @@ import { UsageDailyChart } from "./UsageDailyChart";
 import { toggleUsageEnvironment } from "./usageEnvironmentSelection";
 import { useRefreshLimits } from "./UsageLimitsSection";
 import { UsageLimitsSection } from "./UsageLimitsPooled";
+import { UsageLocalCompute } from "./UsageLocalCompute";
 import type { UsageChartMetric } from "./usageChartData";
 import { PROVIDER_LABEL, useProviderColors, useUsageMixColors } from "./usageProviders";
 
@@ -395,6 +396,12 @@ function UsageScreen(props: {
                     </UsageUpdating>
                   </>
                 )}
+                {selectedEnvironments.length > 0 ? (
+                  <UsageLocalCompute
+                    environments={selectedEnvironments}
+                    initialWindow={isPast24Hours ? "24h" : "7d"}
+                  />
+                ) : null}
               </>
             )}
           </Animated.View>

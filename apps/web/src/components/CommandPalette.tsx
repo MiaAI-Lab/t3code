@@ -879,7 +879,6 @@ function OpenCommandPaletteDialog(props: {
     ).map((item) => [item.value, item] as const),
   );
   const projectThreadItems: CommandPaletteActionItem[] = [
-    ...openingOrderThreadItems.map((item) => projectJumpItems.get(item.value) ?? item),
     {
       kind: "action",
       value: NEW_THREAD_ADD_PROJECT_VALUE,
@@ -890,6 +889,7 @@ function OpenCommandPaletteDialog(props: {
         openAddProjectDialog();
       },
     },
+    ...openingOrderThreadItems.map((item) => projectJumpItems.get(item.value) ?? item),
   ];
 
   const {

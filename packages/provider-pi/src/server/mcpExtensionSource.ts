@@ -4,6 +4,7 @@ import {
   T3_CODE_LEAN_ORCHESTRATION_INSTRUCTIONS,
   T3_CODE_ORCHESTRATION_INSTRUCTIONS,
 } from "@t3tools/provider-core/server/orchestrationInstructions";
+import { PI_T3_CACHE_COMPACTION_SNIPPET } from "./cacheCompactionExtensionSource.ts";
 import { PI_T3_GATEWAY_PROVIDER_SNIPPET } from "./gatewayExtensionSource.ts";
 
 export const PI_T3_MCP_EXTENSION_FILENAME = "pi-t3-mcp-extension.ts";
@@ -18,7 +19,7 @@ export const T3_PI_TOOL_PROFILE_ENV = "T3_PI_TOOL_PROFILE";
 export const PI_FILE_CHANGE_TOOLS = ["edit", "write"] as const;
 
 export const PI_T3_MCP_EXTENSION_SOURCE = `\
-import { stripFrontmatter, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { convertToLlm, stripFrontmatter, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import { Type } from "typebox";
@@ -253,8 +254,11 @@ function createMcpClient(endpoint: string, token: string) {
 ${PI_T3_GATEWAY_PROVIDER_SNIPPET}
 // ---- end T3 gateway provider registration ----
 
+${PI_T3_CACHE_COMPACTION_SNIPPET}
+
 export default async function t3McpExtension(pi: ExtensionAPI) {
   registerT3GatewayProvider(pi);
+  registerT3CacheCompaction(pi);
   // RPC has no trust prompt, so Pi skips an untrusted folder's protected resources. Session
   // replacement reruns this factory without project_trust, and T3 drops notices outside a turn,
   // so check each session's first turn. An explicit --no-approve is deliberate and stays quiet.

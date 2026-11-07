@@ -81,6 +81,16 @@ const SETTINGS_SEARCH_TERMS = {
     "login",
     "auth",
   ],
+  SettingsInference: [
+    "inference servers",
+    "local models",
+    "ollama",
+    "llama.cpp",
+    "vllm",
+    "prompt cache",
+    "context",
+    "fallback",
+  ],
   SettingsEnvironmentSourceControl: [
     "git",
     "pull requests",

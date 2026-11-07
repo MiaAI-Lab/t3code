@@ -7,7 +7,6 @@ import type {
   UsageLimitSourceSnapshots,
 } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
-import { formatTokens } from "@t3tools/shared/usageFormat";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import {
   collectProviderUsageLimits,
@@ -24,13 +23,12 @@ import { useNowMinute } from "../../hooks/useNowMinute";
 import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window";
 import { formatContextWindowTokens } from "../../lib/contextWindow";
 import {
-  MISSING_MEASUREMENT,
   formatLastInferenceRequest,
-  formatLastRequestCached,
+  formatLastRequestCompact,
   formatLastRequestServer,
-  formatMeasuredSeconds,
+  inferenceServerSnapshotName,
   lastRequestObservations,
-} from "../../lib/inferenceMetrics";
+} from "@t3tools/client-runtime/state/inference-presentation";
 import { hasInferenceServersAtom, threadInferenceRequestAtom } from "../../state/inference";
 import { serverEnvironment } from "../../state/server";
 import { cn } from "../../lib/utils";
@@ -170,12 +168,7 @@ function LastRequestSection({ environmentId, threadId }: ThreadKey) {
   const last = AsyncResult.getOrElse(result, () => null)?.last ?? null;
   if (last === null) return null;
   const summary = formatLastInferenceRequest(last);
-  const prompt = last.promptTokens === null ? MISSING_MEASUREMENT : formatTokens(last.promptTokens);
-  const cached = formatLastRequestCached(last);
-  const served = formatLastRequestServer(
-    last,
-    (id) => servers?.find((server) => server.id === id)?.displayName ?? id,
-  );
+  const served = formatLastRequestServer(last, (id) => inferenceServerSnapshotName(servers, id));
   return (
     <ThreadDetailsSection
       headingId="thread-details-last-request-heading"
@@ -187,11 +180,7 @@ function LastRequestSection({ environmentId, threadId }: ThreadKey) {
           label="Last request"
           fill={null}
           tone={null}
-          value={[
-            `${prompt} prompt`,
-            ...(cached === null ? [] : [cached]),
-            `TTFT ${formatMeasuredSeconds(last.ttftMs)}`,
-          ].join(" · ")}
+          value={formatLastRequestCompact(last)}
           ariaValue={summary}
           tooltip={
             <>

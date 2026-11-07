@@ -247,6 +247,14 @@
       "types": "./src/state/projects.ts",
       "default": "./src/state/projects.ts"
     },
+    "./state/inference": {
+      "types": "./src/state/inference.ts",
+      "default": "./src/state/inference.ts"
+    },
+    "./state/inference-presentation": {
+      "types": "./src/state/inferencePresentation.ts",
+      "default": "./src/state/inferencePresentation.ts"
+    },
     "./state/inference-activity": {
       "types": "./src/state/inferenceActivity.ts",
       "default": "./src/state/inferenceActivity.ts"

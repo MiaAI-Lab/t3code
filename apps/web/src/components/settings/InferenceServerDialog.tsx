@@ -19,10 +19,10 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import {
   draftFromInferenceServer,
   EMPTY_INFERENCE_SERVER_DRAFT,
-  inferenceServerDisplayName,
   inferenceServerFromDraft,
   type InferenceServerDraft,
 } from "./InferenceSettings.logic";
+import { inferenceServerDisplayName } from "@t3tools/client-runtime/state/inference-presentation";
 import { SecretSourceInput, useSecretSources } from "./SecretSourceInput";
 
 function FieldError({

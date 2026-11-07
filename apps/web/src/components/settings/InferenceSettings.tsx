@@ -44,11 +44,12 @@ import {
   describeInferenceServerFallback,
   describeInferenceServerLoad,
   describeInferenceServerProbeFreshness,
+  inferenceServerDetails,
   inferenceServerDisplayName,
-  inferenceServerRemovalPatch,
   inferenceServerRequestHealth,
   presentInferenceServers,
-} from "./InferenceSettings.logic";
+} from "@t3tools/client-runtime/state/inference-presentation";
+import { inferenceServerRemovalPatch } from "./InferenceSettings.logic";
 import {
   classifyProviderEnvironmentAccess,
   resolveRemoteOperateAccess,
@@ -251,12 +252,7 @@ function InferenceServerRow({
   const current = config.enabled && snapshot?.enabled ? snapshot : undefined;
   const load = current ? describeInferenceServerLoad(current) : null;
   const promptCache = current ? describeInferencePromptCache(current) : null;
-  const details = [
-    config.baseUrl,
-    current?.engine,
-    config.maxConcurrency === undefined ? undefined : `T3 sends up to ${config.maxConcurrency}`,
-    fallback ?? undefined,
-  ].filter((part): part is string => part !== undefined);
+  const details = inferenceServerDetails(config, current, fallback);
   return (
     <SettingsRow
       title={

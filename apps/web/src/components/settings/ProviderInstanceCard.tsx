@@ -77,7 +77,7 @@ import {
   inferenceServerDisplayName,
   presentInferenceServers,
   resolveInferenceServerLink,
-} from "./InferenceSettings.logic";
+} from "@t3tools/client-runtime/state/inference-presentation";
 import {
   getProviderVersionAdvisoryPresentation,
   PROVIDER_STATUS_STYLES,

@@ -218,9 +218,12 @@ export const executeOpenCode = async (
   const run = (source: string) => NodeVM.runInContext(source, context, { timeout: 250 });
   run(`((bridge, known) => {
     delete globalThis.__bridge; delete globalThis.__known;
-    const call = (path) => (input) => new Promise((resolve, reject) => bridge(path, JSON.stringify(input ?? {}), (reply) => { const r = JSON.parse(reply); if ("error" in r) reject(new Error(r.error)); else resolve(r.value); }));
-    const namespace = (prefix) => new Proxy({}, { get: (_, name) => typeof name === "string" ? call(prefix + "." + name) : undefined });
-    globalThis.tools = new Proxy({}, { get: (_, ns) => typeof ns !== "string" ? undefined : namespace(/^[A-Za-z_$][\\w$]*$/.test(ns) ? "tools." + ns : "tools[" + JSON.stringify(ns) + "]") });
+    // A cell may drop a failed call's promise; marking it handled keeps the host process alive.
+    const call = (path) => (input) => { const p = new Promise((resolve, reject) => bridge(path, JSON.stringify(input ?? {}), (reply) => { const r = JSON.parse(reply); if ("error" in r) reject(new Error(r.error)); else resolve(r.value); })); p.catch(() => {}); return p; };
+    // Not tool names: \`await tools.x\` must not see a \`then\`, and String(tools.x) must not call.
+    const plain = new Set(["then", "toString", "valueOf", "toJSON", "constructor"]);
+    const namespace = (prefix) => new Proxy({}, { get: (_, name) => typeof name === "string" && !plain.has(name) ? call(prefix + "." + name) : undefined });
+    globalThis.tools = new Proxy({}, { get: (_, ns) => typeof ns !== "string" || plain.has(ns) ? undefined : namespace(/^[A-Za-z_$][\\w$]*$/.test(ns) ? "tools." + ns : "tools[" + JSON.stringify(ns) + "]") });
     globalThis.search = (input) => call("search")(input);
     globalThis.__result = undefined; globalThis.__error = undefined; globalThis.__done = false;
   })(__bridge, JSON.parse(__known));`);

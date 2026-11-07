@@ -147,6 +147,14 @@ it("runs OpenCode Code Mode cells: T3 calls, search, errors and unknown tools", 
   assert.deepStrictEqual(unknown.unknownTools, [`tools["${SERVER}"].delegate`]);
   assert.isTrue(unknown.failed);
   assert.isTrue((await run("return {")).syntaxError);
+  // A dropped failing call and property probes neither call a tool nor crash the host.
+  assert.isFalse(
+    (await run(`tools["${SERVER}"].nope({}); return typeof tools["${SERVER}"].toString;`)).failed,
+  );
+  assert.strictEqual(
+    (await run(`const ns = await tools["${SERVER}"]; return typeof ns;`)).output,
+    "object",
+  );
   assert.deepStrictEqual(asked, [
     ["delegate_task", { task: "x" }],
     ["task_status", {}],

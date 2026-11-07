@@ -140,6 +140,25 @@ describe("makeUsageMeter", () => {
     expect(meter(api, true, text).finished).toBe(true);
   });
 
+  it("tells the watchdog which channel each streamed piece is on", () => {
+    const seen: Array<string> = [];
+    const usage = makeUsageMeter("responses", true, (channel, piece) =>
+      seen.push(`${channel}:${piece}`),
+    );
+    usage.push(
+      encoder.encode(
+        sse([
+          { type: "response.reasoning_text.delta", delta: "hm" },
+          { type: "response.refusal.delta", delta: "No" },
+          { type: "response.function_call_arguments.delta", delta: "{}" },
+          { type: "response.output_text.delta", delta: "Hi" },
+        ]),
+      ),
+    );
+    // A refusal is an answer, so it ends the reasoning-only limit like one.
+    expect(seen).toEqual(["reasoning:hm", "answer:No", "tool:{}", "answer:Hi"]);
+  });
+
   it("does not treat a stream cut before its terminal event as finished", () => {
     expect(
       meter("chat-completions", true, sse([{ choices: [{ delta: { content: "Hi" } }] }])).finished,

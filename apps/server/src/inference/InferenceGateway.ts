@@ -445,7 +445,8 @@ const make = Effect.gen(function* () {
         : undefined,
     );
     const stopSignal = yield* Deferred.make<WatchdogReason>();
-    const stoppedFor = yield* Ref.make<WatchdogReason | undefined>(undefined);
+    // "finished" once the reply has ended on its own, so a late idle tick cannot stop it.
+    const stoppedFor = yield* Ref.make<WatchdogReason | "finished" | undefined>(undefined);
     const lastProgressAt = yield* Ref.make(receivedAt);
     const stopFor = (reason: WatchdogReason) =>
       Ref.modify(stoppedFor, (current) => [current === undefined, current ?? reason]).pipe(
@@ -631,9 +632,11 @@ const make = Effect.gen(function* () {
       // A stopped reply ends with the protocol's error, so the harness never takes it as done.
       Stream.concat(
         Stream.unwrap(
-          Ref.get(stoppedFor).pipe(
+          Ref.modify(stoppedFor, (current) => [current, current ?? "finished"] as const).pipe(
             Effect.map((reason) =>
-              reason === undefined ? Stream.empty : Stream.make(stopNotice(protocol!, reason)),
+              reason === undefined || reason === "finished"
+                ? Stream.empty
+                : Stream.make(stopNotice(protocol!, reason)),
             ),
           ),
         ),
@@ -641,7 +644,7 @@ const make = Effect.gen(function* () {
       Stream.onExit((exit) =>
         Ref.get(stoppedFor).pipe(
           Effect.flatMap((reason) =>
-            reason !== undefined
+            reason !== undefined && reason !== "finished"
               ? recordStop(reason).pipe(Effect.andThen(finish("failed")))
               : finish(
                   Exit.isSuccess(exit)

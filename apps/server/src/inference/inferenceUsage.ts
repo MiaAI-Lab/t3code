@@ -135,7 +135,7 @@ function readDeltas(
       const delta = asText(event.delta);
       return [
         [
-          type === "response.output_text.delta"
+          type === "response.output_text.delta" || type === "response.refusal.delta"
             ? "answer"
             : type.includes("reasoning")
               ? "reasoning"

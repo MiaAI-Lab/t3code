@@ -76,6 +76,20 @@ const CHAT_STREAM = sse([
   },
 ]);
 
+const flatCall = {
+  type: "function_call",
+  call_id: "c1",
+  name: "mcp__t3_code__echo_x",
+  arguments: "{}",
+};
+const RESPONSES_STREAM = sse([
+  { type: "response.output_item.added", item: flatCall },
+  {
+    type: "response.completed",
+    response: { id: "resp_1", output: [flatCall], usage: { input_tokens: 7, output_tokens: 4 } },
+  },
+]);
+
 interface Seen {
   readonly url: string;
   readonly headers: Readonly<Record<string, string | undefined>>;
@@ -118,6 +132,13 @@ const makeHarness = Effect.fnUntraced(function* (threads: Layer.Layer<never> = L
             headers: { "set-cookie": "upstream=1" },
           }),
         ),
+      ),
+    ),
+    HttpRouter.add(
+      "POST",
+      "/up/v1/responses",
+      capture.pipe(
+        Effect.as(HttpServerResponse.text(RESPONSES_STREAM, { contentType: "text/event-stream" })),
       ),
     ),
     HttpRouter.add(
@@ -282,6 +303,44 @@ it.live("streams chat completions with only the server's key and records usage",
     });
     expect(record.queueWaitMs).toBeTypeOf("number");
     expect(record.ttftMs).toBeTypeOf("number");
+  }),
+);
+
+it.live("sends namespace tools as flat functions and restores the namespace on calls", () =>
+  Effect.gen(function* () {
+    const { call, seen, records } = yield* makeHarness();
+    const echo = { type: "function", name: "echo_x", parameters: {} };
+    const response = yield* call(
+      "rtx/v1/responses",
+      post("thread-token", {
+        model: "GLM-5.3-Flash",
+        stream: true,
+        tools: [{ type: "namespace", name: "mcp__t3_code", tools: [echo] }],
+        input: [],
+      }),
+    );
+    const restored = { ...flatCall, namespace: "mcp__t3_code", name: "echo_x" };
+    expect(yield* Effect.promise(() => response.text())).toBe(
+      sse([
+        { type: "response.output_item.added", item: restored },
+        {
+          type: "response.completed",
+          response: {
+            id: "resp_1",
+            output: [restored],
+            usage: { input_tokens: 7, output_tokens: 4 },
+          },
+        },
+      ]),
+    );
+    expect((yield* Queue.take(seen)).body).toMatchObject({
+      tools: [{ ...echo, name: "mcp__t3_code__echo_x" }],
+    });
+    expect(yield* Queue.take(records)).toMatchObject({
+      status: "completed",
+      promptTokens: 7,
+      completionTokens: 4,
+    });
   }),
 );
 

@@ -6,6 +6,7 @@ import {
   InferenceServerId,
   type InferenceServerLoad,
   type InferenceServerModel,
+  type InferenceServerPromptCache,
   type InferenceServerSnapshot,
   type ProviderInstanceConfig,
   type ServerSettings,
@@ -146,8 +147,8 @@ const METRICS = [
   },
 ] as const;
 
-/** Sums each series across its labels; returns the first engine whose two gauges are present. */
-function readMetrics(text: string): { engine: string; load: InferenceServerLoad } | undefined {
+/** Sums each series across its labels. */
+function sumMetrics(text: string): ReadonlyMap<string, number> {
   const totals = new Map<string, number>();
   for (const line of text.split("\n")) {
     const match = /^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{[^}]*\})?\s+(\S+)/.exec(line.trim());
@@ -156,6 +157,13 @@ function readMetrics(text: string): { engine: string; load: InferenceServerLoad 
     if (!Number.isFinite(value) || value < 0) continue;
     totals.set(match[1]!, (totals.get(match[1]!) ?? 0) + value);
   }
+  return totals;
+}
+
+/** The first engine whose two load gauges are present. */
+function readLoad(
+  totals: ReadonlyMap<string, number>,
+): { engine: string; load: InferenceServerLoad } | undefined {
   for (const family of METRICS) {
     const running = totals.get(family.running);
     const waiting = totals.get(family.waiting);
@@ -166,6 +174,65 @@ function readMetrics(text: string): { engine: string; load: InferenceServerLoad 
     };
   }
   return undefined;
+}
+
+/** Cumulative prompt-token counters from the previous probe, and the share they last produced. */
+export interface PromptCacheCounters {
+  readonly hits: number;
+  readonly queries: number;
+  readonly share?: number;
+  readonly falling?: boolean;
+}
+
+const FALLING_MARGIN = 0.1;
+const SATURATED_SHARE = 0.95;
+
+/**
+ * TensorFold's prompt cache, with the cached share of the prompt tokens queried since `previous`.
+ * Counters below `previous` mean the server restarted, so they count from zero.
+ */
+export function readPromptCache(
+  totals: ReadonlyMap<string, number>,
+  previous: PromptCacheCounters | undefined,
+): { readonly cache?: InferenceServerPromptCache; readonly counters?: PromptCacheCounters } {
+  const budget = totals.get("tensorfold:prompt_cache_budget_bytes");
+  if (budget === undefined) return {};
+  const budgetBytes = Math.round(budget);
+  if (budgetBytes === 0) return { cache: { budgetBytes, status: "none" } };
+  const retained = totals.get("tensorfold:prompt_cache_bytes");
+  const states = totals.get("tensorfold:prompt_cache_states");
+  const hits = totals.get("tensorfold:prefix_cache_hits_total");
+  const queries = totals.get("tensorfold:prefix_cache_queries_total");
+
+  let counters: PromptCacheCounters | undefined;
+  if (hits !== undefined && queries !== undefined) {
+    const reset = previous !== undefined && (hits < previous.hits || queries < previous.queries);
+    const base = reset ? { hits: 0, queries: 0 } : previous;
+    const queried = base === undefined ? 0 : queries - base.queries;
+    if (base === undefined || queried <= 0) {
+      counters = reset ? { hits, queries } : { ...previous, hits, queries };
+    } else {
+      const share = Math.min(1, Math.max(0, (hits - base.hits) / queried));
+      const falling = previous?.share !== undefined && share < previous.share - FALLING_MARGIN;
+      counters = { hits, queries, share, falling };
+    }
+  }
+
+  // Full once there is no room for another state; without its size, past a fixed share.
+  const room = totals.get("tensorfold:prompt_cache_minimum_state_bytes");
+  const saturated =
+    retained !== undefined &&
+    budget - retained < (room !== undefined && room > 0 ? room : budget * (1 - SATURATED_SHARE));
+  return {
+    cache: {
+      budgetBytes,
+      ...(retained === undefined ? {} : { retainedBytes: Math.round(retained) }),
+      ...(states === undefined ? {} : { states: Math.round(states) }),
+      ...(counters?.share === undefined ? {} : { recentCachedShare: counters.share }),
+      status: saturated && counters?.falling === true ? "saturated-falling" : "ok",
+    },
+    ...(counters === undefined ? {} : { counters }),
+  };
 }
 
 /**
@@ -207,6 +274,7 @@ export const make = Effect.gen(function* () {
   const secrets = yield* SecretResolver.SecretResolver;
   const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
   const stateRef = yield* Ref.make<ReadonlyArray<InferenceServerSnapshot>>([]);
+  const cacheCounters = yield* Ref.make(new Map<InferenceServerId, PromptCacheCounters>());
   const changes = yield* Effect.acquireRelease(
     PubSub.unbounded<ReadonlyArray<InferenceServerSnapshot>>(),
     PubSub.shutdown,
@@ -366,10 +434,19 @@ export const make = Effect.gen(function* () {
       ],
       { concurrency: "unbounded" },
     );
-    const metrics =
+    const totals =
       metricsText._tag === "Response" && metricsText.status >= 200 && metricsText.status < 300
-        ? readMetrics(metricsText.body)
+        ? sumMetrics(metricsText.body)
         : undefined;
+    const metrics = totals === undefined ? undefined : readLoad(totals);
+    const { cache, counters } =
+      totals === undefined ? {} : readPromptCache(totals, (yield* Ref.get(cacheCounters)).get(id));
+    yield* Ref.update(cacheCounters, (all) => {
+      const next = new Map(all);
+      if (counters === undefined) next.delete(id);
+      else next.set(id, counters);
+      return next;
+    });
     const engine = ownerEngine ?? metrics?.engine;
     // Batch size means concurrent requests only where that is verified for the engine.
     const maxConcurrentRequests =
@@ -387,6 +464,7 @@ export const make = Effect.gen(function* () {
       ...(metrics === undefined ? {} : { load: metrics.load }),
       ...(maxConcurrentRequests === undefined ? {} : { maxConcurrentRequests }),
       ...(protocols.length === 0 ? {} : { apiProtocols: protocols }),
+      ...(cache === undefined ? {} : { promptCache: cache }),
     } as const;
   });
 

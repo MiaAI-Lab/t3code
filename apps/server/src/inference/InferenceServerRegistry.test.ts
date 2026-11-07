@@ -58,14 +58,21 @@ const layerFakeHttp = (routes: Routes, seen: Array<{ url: string; auth: string |
     ),
   );
 
+/** Probes again for each entry of `later`, with that entry's routes changed. */
 const probe = (
   routes: Routes,
   config: Partial<InferenceServerConfig> = {},
   seen: Array<{ url: string; auth: string | undefined }> = [],
-) =>
-  Effect.gen(function* () {
+  later: ReadonlyArray<Routes> = [],
+) => {
+  const live: Record<string, Route> = { ...routes };
+  return Effect.gen(function* () {
     const registry = yield* InferenceServerRegistry.make;
-    const snapshots = yield* registry.refresh();
+    let snapshots = yield* registry.refresh();
+    for (const changed of later) {
+      Object.assign(live, changed);
+      snapshots = yield* registry.refresh();
+    }
     return snapshots.find((snapshot) => snapshot.id === rtx);
   }).pipe(
     Effect.provide([
@@ -87,10 +94,11 @@ const probe = (
           ),
         invalidate: () => Effect.void,
       }),
-      layerFakeHttp(routes, seen),
+      layerFakeHttp(live, seen),
     ]),
     Effect.scoped,
   );
+};
 
 const tensorFoldModels = {
   object: "list",
@@ -109,6 +117,28 @@ const tensorFoldModels = {
     },
   ],
 };
+
+// Trimmed from real TensorFold /metrics captures: rtx with a full 9.1 GB cache, spark1 with none.
+const rtxMetrics = (hits: number, queries: number) =>
+  [
+    "tensorfold:requests_running 0",
+    "tensorfold:requests_waiting 0",
+    "# TYPE tensorfold:prompt_cache_budget_bytes gauge",
+    "tensorfold:prompt_cache_budget_bytes 9122911181",
+    "tensorfold:prompt_cache_minimum_state_bytes 249561088",
+    "tensorfold:prompt_cache_states 18",
+    "tensorfold:prompt_cache_bytes 9122611200",
+    "# TYPE tensorfold:prefix_cache_queries_total counter",
+    `tensorfold:prefix_cache_queries_total ${queries}`,
+    `tensorfold:prefix_cache_hits_total ${hits}`,
+  ].join("\n");
+const spark1Metrics = [
+  "tensorfold:requests_running 1",
+  "tensorfold:requests_waiting 0",
+  "tensorfold:prompt_cache_budget_bytes 0",
+  "tensorfold:prompt_cache_minimum_state_bytes 272629760",
+  "tensorfold:prompt_cache_can_keep_state 0",
+].join("\n");
 
 describe("InferenceServerRegistry probes", () => {
   it.effect("reads TensorFold models, batch size, and load", () =>
@@ -154,6 +184,42 @@ describe("InferenceServerRegistry probes", () => {
       });
       expect(snapshot?.checkedAt).toBeTypeOf("string");
       expect(seen.every(({ auth }) => auth === "Bearer secret-key")).toBe(true);
+    }),
+  );
+
+  it.effect("reads the prompt cache and its cached share between probes", () =>
+    Effect.gen(function* () {
+      const snapshot = yield* probe(
+        {
+          [`${HOST}/v1/models`]: tensorFoldModels,
+          [`${HOST}/metrics`]: rtxMetrics(35_252_224, 44_188_980),
+        },
+        {},
+        [],
+        [{ [`${HOST}/metrics`]: rtxMetrics(35_252_224 + 850, 44_188_980 + 1_000) }],
+      );
+      expect(snapshot?.promptCache).toEqual({
+        budgetBytes: 9_122_911_181,
+        retainedBytes: 9_122_611_200,
+        states: 18,
+        recentCachedShare: 0.85,
+        status: "ok",
+      });
+    }),
+  );
+
+  it.effect("reports a zero budget as no prompt cache, and no metrics as unknown", () =>
+    Effect.gen(function* () {
+      const none = yield* probe({
+        [`${HOST}/v1/models`]: tensorFoldModels,
+        [`${HOST}/metrics`]: spark1Metrics,
+      });
+      expect(none?.promptCache).toEqual({ budgetBytes: 0, status: "none" });
+      const unknown = yield* probe({
+        [`${HOST}/v1/models`]: tensorFoldModels,
+        [`${HOST}/metrics`]: "tensorfold:requests_running 0\ntensorfold:requests_waiting 0\n",
+      });
+      expect(unknown?.promptCache).toBeUndefined();
     }),
   );
 
@@ -505,5 +571,80 @@ describe("servedContextWindowForModel", () => {
   it("knows nothing for an unlinked instance or a turned-off server", () => {
     expect(lookup("GLM-5.3-Flash", { linked: false })).toEqual({});
     expect(lookup("GLM-5.3-Flash", { enabled: false })).toEqual({});
+  });
+});
+
+describe("readPromptCache", () => {
+  const totals = (values: Readonly<Record<string, number>>) =>
+    new Map(Object.entries(values).map(([name, value]) => [`tensorfold:${name}`, value]));
+  const full = { prompt_cache_budget_bytes: 1_000, prompt_cache_bytes: 990 };
+  const half = { prompt_cache_budget_bytes: 1_000, prompt_cache_bytes: 500 };
+  const counted = (hits: number, queries: number) => ({
+    prefix_cache_hits_total: hits,
+    prefix_cache_queries_total: queries,
+  });
+  const before = { hits: 140, queries: 200, share: 0.9, falling: false };
+
+  it.each([
+    [
+      "first sight has no share",
+      full,
+      counted(50, 100),
+      undefined,
+      { status: "ok" },
+      { hits: 50, queries: 100 },
+    ],
+    [
+      "an interval's share",
+      full,
+      counted(140, 200),
+      { hits: 50, queries: 100 },
+      { recentCachedShare: 0.9, status: "ok" },
+      before,
+    ],
+    [
+      "an idle interval keeps the last share",
+      full,
+      counted(140, 200),
+      before,
+      { recentCachedShare: 0.9, status: "ok" },
+      before,
+    ],
+    [
+      "a restart counts from zero",
+      full,
+      counted(30, 100),
+      { hits: 900, queries: 1_000, share: 0.9, falling: false },
+      { recentCachedShare: 0.3, status: "saturated-falling" },
+      { hits: 30, queries: 100, share: 0.3, falling: true },
+    ],
+    [
+      "a falling share in a full cache",
+      full,
+      counted(160, 300),
+      before,
+      { recentCachedShare: 0.2, status: "saturated-falling" },
+      { hits: 160, queries: 300, share: 0.2, falling: true },
+    ],
+    [
+      "a falling share with room to spare",
+      half,
+      counted(160, 300),
+      before,
+      { recentCachedShare: 0.2, status: "ok" },
+      { hits: 160, queries: 300, share: 0.2, falling: true },
+    ],
+  ] as const)("%s", (_, cache, counters, previous, expected, next) => {
+    const read = InferenceServerRegistry.readPromptCache(
+      totals({ ...cache, ...counters }),
+      previous,
+    );
+    expect(read.cache).toMatchObject(expected);
+    if (!("recentCachedShare" in expected)) expect(read.cache?.recentCachedShare).toBeUndefined();
+    expect(read.counters).toEqual(next);
+  });
+
+  it("knows nothing without a budget", () => {
+    expect(InferenceServerRegistry.readPromptCache(totals(counted(1, 2)), undefined)).toEqual({});
   });
 });

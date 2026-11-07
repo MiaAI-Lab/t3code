@@ -13,11 +13,22 @@ export interface NamespacedName {
 export type NamespaceNames = ReadonlyMap<string, NamespacedName>;
 
 const SEPARATOR = "__";
+// OpenAI's limit on function names; longer flat names keep a stable hash so history still maps.
+const MAX_NAME_LENGTH = 64;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const flatName = (namespace: string, name: string) => `${namespace}${SEPARATOR}${name}`;
+const flatName = (namespace: string, name: string) => {
+  const full = `${namespace}${SEPARATOR}${name}`;
+  if (full.length <= MAX_NAME_LENGTH) return full;
+  let fnv = 0x811c9dc5;
+  for (let index = 0; index < full.length; index += 1) {
+    fnv = Math.imul(fnv ^ full.charCodeAt(index), 0x01000193) >>> 0;
+  }
+  const hash = fnv.toString(16).padStart(8, "0");
+  return `${full.slice(0, MAX_NAME_LENGTH - hash.length - 1)}_${hash}`;
+};
 
 /**
  * The body to send instead, or undefined to send it as is: when it has no namespaces, or when a

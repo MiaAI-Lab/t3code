@@ -56,6 +56,21 @@ describe("flattenNamespaceTools", () => {
     expect(flat?.names).toEqual(names);
   });
 
+  it("keeps a long flat name within the function name limit and stable across requests", () => {
+    const long = {
+      ...echo,
+      name: "a_tool_name_that_is_rather_long_for_the_sixty_four_character_limit",
+    };
+    const body = { tools: [{ ...t3Tools, tools: [long] }] };
+    const [first] = [...(flattenNamespaceTools(body)?.names.keys() ?? [])];
+    expect(first?.length).toBe(64);
+    expect([...(flattenNamespaceTools(body)?.names.keys() ?? [])]).toEqual([first]);
+    expect(flattenNamespaceTools(body)?.names.get(first ?? "")).toEqual({
+      namespace: "mcp__t3_code",
+      name: long.name,
+    });
+  });
+
   it("leaves requests without namespaces or with a colliding flat name untouched", () => {
     expect(flattenNamespaceTools({ tools: [exec], input: [] })).toBeUndefined();
     expect(

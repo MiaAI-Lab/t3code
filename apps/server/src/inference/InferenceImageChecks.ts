@@ -127,6 +127,9 @@ function readChatReply(status: number, body: string): Reply {
   };
 }
 
+// Busy or overloaded, not an answer about images.
+const TRANSIENT_STATUSES: ReadonlySet<number> = new Set([408, 425, 429, 502, 503, 504]);
+
 const quote = (text: string) => {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > 60 ? `${flat.slice(0, 60)}…` : flat;
@@ -223,6 +226,9 @@ export const make = Effect.gen(function* () {
       for (const colour of colours) {
         const reply = yield* ask(colour);
         if (reply._tag === "Failed") return unknown(`${name} did not answer the check.`);
+        if (reply._tag === "Refused" && TRANSIENT_STATUSES.has(reply.status)) {
+          return unknown(`${name} is busy (${reply.status}). Try again.`);
+        }
         if (reply._tag === "Refused") {
           // Only a server that answers the same question without the image refused the image.
           const control = yield* ask(undefined);
@@ -230,11 +236,12 @@ export const make = Effect.gen(function* () {
             ? verdict(false, `${name} refuses images for ${model} but answers text.`)
             : unknown(`${name} answered ${reply.status}: ${quote(reply.body)}`);
         }
-        const seen = readColourAnswer(reply.answer, reply.reasoning);
-        if (seen === colour) continue;
-        if (seen === undefined && reply.truncated) {
+        // Reasoning cut off mid-thought may name any colour; only a finished one is graded.
+        if (reply.truncated && readColourAnswer(reply.answer, "") === undefined) {
           return unknown(`${model} spent its whole answer reasoning. Try again.`);
         }
+        const seen = readColourAnswer(reply.answer, reply.reasoning);
+        if (seen === colour) continue;
         return verdict(
           false,
           `Shown a ${colour} image, ${model} answered "${quote(reply.answer || reply.reasoning)}".`,

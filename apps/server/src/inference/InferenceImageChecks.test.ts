@@ -130,6 +130,25 @@ describe("InferenceImageChecks", () => {
       }));
       expect(thinking.result.outcome).toBe("unknown");
       expect(thinking.recorded).toBeUndefined();
+      // A busy server is not refusing images, even when it then answers text.
+      const busy = yield* runCheck((colour) =>
+        colour === undefined ? answer("blue") : { status: 503, body: { error: "busy" } },
+      );
+      expect(busy.result.outcome).toBe("unknown");
+      // Reasoning cut off mid-thought names colours it was only weighing.
+      const cutOff = yield* runCheck(() => ({
+        status: 200,
+        body: {
+          choices: [
+            {
+              message: { content: "", reasoning_content: "Is it red, or maybe purple" },
+              finish_reason: "length",
+            },
+          ],
+        },
+      }));
+      expect(cutOff.result.outcome).toBe("unknown");
+      expect(cutOff.recorded).toBeUndefined();
     }),
   );
 });

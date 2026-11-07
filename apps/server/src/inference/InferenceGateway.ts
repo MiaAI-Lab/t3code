@@ -13,6 +13,7 @@ import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Duration from "effect/Duration";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
@@ -532,6 +533,18 @@ const make = Effect.gen(function* () {
         : errorResponse(503, "server_unavailable", plan.failure.message);
     }
 
+    const recordStop = Effect.fn("InferenceGateway.recordStop")(function* (reason: WatchdogReason) {
+      const target = yield* Ref.get(served);
+      yield* stops.record({
+        threadId: caller.threadId,
+        runId,
+        serverId: target.serverId,
+        model: prepared.model,
+        reason,
+        atMs: yield* Clock.currentTimeMillis,
+      });
+    });
+
     // Only failures before the request reaches a server move it to the next target.
     let upstream: HttpClientResponse.HttpClientResponse | undefined;
     for (const [index, target] of plan.success.entries()) {
@@ -549,19 +562,33 @@ const make = Effect.gen(function* () {
       const dispatchedAt = yield* Clock.currentTimeMillis;
       yield* Ref.set(milestones, { admittedAt: dispatchedAt, dispatchedAt });
 
-      const response = yield* HttpClient.withScope(client)
-        .execute(
-          HttpClientRequest.post(`${target.base}/${route}`).pipe(
-            HttpClientRequest.setHeaders(upstreamHeaders(request, target.apiKey)),
-            HttpClientRequest.bodyUint8Array(prepared.body, "application/json"),
-          ),
-        )
-        .pipe(Scope.provide(attempt), Effect.result);
-      if (response._tag === "Success") {
-        upstream = response.success;
-        break;
+      const execute = HttpClient.withScope(client).execute(
+        HttpClientRequest.post(`${target.base}/${route}`).pipe(
+          HttpClientRequest.setHeaders(upstreamHeaders(request, target.apiKey)),
+          HttpClientRequest.bodyUint8Array(prepared.body, "application/json"),
+        ),
+      );
+      // A server holding back its headers holds the slot too, so the first-content limit
+      // runs from dispatch.
+      const answered = yield* (
+        watching
+          ? execute.pipe(Effect.timeoutOption(Duration.millis(FIRST_CONTENT_TIMEOUT_MS)))
+          : Effect.asSome(execute)
+      ).pipe(Scope.provide(attempt), Effect.result);
+      if (answered._tag === "Success") {
+        if (Option.isSome(answered.success)) {
+          upstream = answered.success.value;
+          break;
+        }
+        yield* recordStop("idle");
+        yield* finish("failed");
+        return errorResponse(
+          504,
+          "t3_watchdog_idle",
+          "T3 Code stopped this reply: the inference server sent nothing for 5 minutes.",
+        );
       }
-      if (next === undefined || !isPreDispatchFailure(response.failure)) {
+      if (next === undefined || !isPreDispatchFailure(answered.failure)) {
         yield* finish("failed");
         return errorResponse(502, "upstream_error", "Could not reach the inference server.");
       }
@@ -577,7 +604,7 @@ const make = Effect.gen(function* () {
     }
     const succeeded = upstream.status < 400;
     if (watching && succeeded) {
-      yield* Ref.set(lastProgressAt, yield* Clock.currentTimeMillis);
+      yield* Ref.set(lastProgressAt, (yield* Ref.get(milestones)).dispatchedAt ?? receivedAt);
       // Lives in `lifetime`, so it ends with the request however that ends.
       yield* Effect.gen(function* () {
         while (true) {
@@ -590,17 +617,6 @@ const make = Effect.gen(function* () {
         }
       }).pipe(Effect.forkIn(lifetime));
     }
-    const recordStop = Effect.fn("InferenceGateway.recordStop")(function* (reason: WatchdogReason) {
-      const target = yield* Ref.get(served);
-      yield* stops.record({
-        threadId: caller.threadId,
-        runId,
-        serverId: target.serverId,
-        model: prepared.model,
-        reason,
-        atMs: yield* Clock.currentTimeMillis,
-      });
-    });
     const body = upstream.stream.pipe(
       // Untraced per chunk: the request span already covers the stream.
       Stream.tap((chunk) => {

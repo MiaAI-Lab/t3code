@@ -791,6 +791,19 @@ it.effect("a client leaving while upstream headers are pending aborts the upstre
   }),
 );
 
+it.effect("stops a server that holds back its headers past the first-content limit", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, gate, settledOnce } = yield* makeLifecycle();
+    yield* Deferred.succeed(gate, undefined);
+    const { handler } = yield* start();
+    const exchange = yield* Queue.take(exchanges);
+    yield* TestClock.adjust("5 minutes");
+    expect((yield* Fiber.join(handler)).status).toBe(504);
+    yield* Deferred.await(exchange.aborted);
+    expect((yield* settledOnce()).status).toBe("failed");
+  }),
+);
+
 it.effect("a client gone before the body is subscribed releases the lease and aborts", () =>
   Effect.gen(function* () {
     const { start, exchanges, gate, settledOnce } = yield* makeLifecycle();

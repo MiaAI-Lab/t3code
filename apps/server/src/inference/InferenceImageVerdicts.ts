@@ -8,6 +8,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 
 import { ServerConfig } from "../config.ts";
 
@@ -38,6 +39,8 @@ const makeWith = Effect.fn("InferenceImageVerdicts.make")(function* (
   persist: (all: ReadonlyMap<string, Verdict>) => Effect.Effect<void>,
 ) {
   const verdicts = yield* Ref.make(initial);
+  // Updates and their writes go one at a time, so an older write never lands last.
+  const writes = yield* Semaphore.make(1);
   return InferenceImageVerdicts.of({
     forAddress: Effect.fn("InferenceImageVerdicts.forAddress")(function* (address) {
       const all = yield* Ref.get(verdicts);
@@ -48,18 +51,21 @@ const makeWith = Effect.fn("InferenceImageVerdicts.make")(function* (
           : { supported: verdict.supported, source: "checked", checkedAt: verdict.checkedAt };
       };
     }),
-    record: Effect.fn("InferenceImageVerdicts.record")(function* (address, model, supported) {
-      const checkedAt = DateTime.formatIso(yield* DateTime.now);
-      const key = keyOf(address, model);
-      const next = yield* Ref.updateAndGet(verdicts, (all) => {
-        const updated = new Map(all);
-        updated.delete(key);
-        updated.set(key, { supported, checkedAt });
-        while (updated.size > MAX_REMEMBERED) updated.delete(updated.keys().next().value!);
-        return updated;
-      });
-      yield* persist(next);
-    }),
+    record: Effect.fn("InferenceImageVerdicts.record")(
+      function* (address, model, supported) {
+        const checkedAt = DateTime.formatIso(yield* DateTime.now);
+        const key = keyOf(address, model);
+        const next = yield* Ref.updateAndGet(verdicts, (all) => {
+          const updated = new Map(all);
+          updated.delete(key);
+          updated.set(key, { supported, checkedAt });
+          while (updated.size > MAX_REMEMBERED) updated.delete(updated.keys().next().value!);
+          return updated;
+        });
+        yield* persist(next);
+      },
+      (effect) => writes.withPermits(1)(effect),
+    ),
   });
 });
 

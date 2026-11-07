@@ -277,7 +277,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/worktrees",
     scope: "project-defaults",
     searchTerms: [
-      "disk storage automatic delete deleted archived threads old inactive merged settled unchanged worktrees retention days project inherit off custom",
+      "disk storage automatic delete deleted archived threads old inactive merged settled done of unchanged worktrees retention days project inherit off custom",
     ],
   },
   {
@@ -630,9 +630,11 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "auto-settle-inactive-threads",
-    title: "Settle inactive threads",
+    title: "Move idle threads to Done",
     to: "/settings/threads",
-    searchTerms: ["auto-settle sidebar inactivity days no activity automatically"],
+    searchTerms: [
+      "auto-settle settled done sidebar inactivity idle days no activity automatically",
+    ],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },
@@ -645,9 +647,9 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "auto-settle-merged-threads",
-    title: "Settle merged threads",
+    title: "Move threads to Done when their PR merges",
     to: "/settings/threads",
-    searchTerms: ["auto-settle pull request merge closed automatically sidebar"],
+    searchTerms: ["auto-settle settled done pull request merge closed automatically sidebar"],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },
@@ -662,10 +664,10 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "days-before-auto-settle",
-    title: "Days of inactivity before settling",
+    title: "Idle days before moving to Done",
     to: "/settings/threads",
     targetId: "auto-settle-inactive-threads",
-    searchTerms: ["auto-settle thread timeout activity sidebar"],
+    searchTerms: ["auto-settle settled done thread timeout activity inactivity sidebar"],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },

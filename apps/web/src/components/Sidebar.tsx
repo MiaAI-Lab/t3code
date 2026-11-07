@@ -325,9 +325,9 @@ const sidebarProviderEntriesAtom = Atom.make((get) => {
 const EMPTY_PROVIDER_ENTRIES: ReadonlyMap<string, SidebarProviderEntry> = new Map();
 const EMPTY_THREADS: readonly EnvironmentThreadShell[] = [];
 
-const SETTLED_TAIL_INITIAL_COUNT = 10;
+const SETTLED_TAIL_INITIAL_COUNT = 5;
 const SETTLED_TAIL_PAGE_COUNT = 25;
-const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
+const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:done-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
 const WORKING_SHELF_EXPANDED_KEY = "t3code:sidebar:working-expanded";
 
@@ -1641,7 +1641,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           toastManager.add(
             stackedThreadToast({
               type: "error",
-              title: "Failed to settle thread",
+              title: "Failed to mark thread as done",
               description: error instanceof Error ? error.message : "An error occurred.",
             }),
           );
@@ -1679,7 +1679,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to un-settle thread",
+            title: "Failed to reopen thread",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -2179,9 +2179,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         case "settle": {
           settlingThreadKeysRef.current.add(activeKey);
           const navigateAfterSettle = planForwardNavigation(activeKey);
-          const settled = await run(settleThread(threadRef), "Failed to settle thread").finally(
-            () => settlingThreadKeysRef.current.delete(activeKey),
-          );
+          const settled = await run(
+            settleThread(threadRef),
+            "Failed to mark thread as done",
+          ).finally(() => settlingThreadKeysRef.current.delete(activeKey));
           if (
             settled &&
             shouldNavigateAfterThreadPark({
@@ -2197,10 +2198,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         }
         case "move-active":
           if (plan.unpin && !(await run(unpinThread(threadRef), "Failed to unpin thread"))) return;
-          if (
-            plan.unsettle &&
-            !(await run(unsettleThread(threadRef), "Failed to un-settle thread"))
-          )
+          if (plan.unsettle && !(await run(unsettleThread(threadRef), "Failed to reopen thread")))
             return;
           if (plan.unsnooze && !(await run(unsnoozeThread(threadRef), "Failed to wake thread")))
             return;
@@ -2345,7 +2343,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               : []),
             {
               id: "settle",
-              label: `Settle (${count})`,
+              label: `Mark ${count} as done`,
               disabled: settlingThreads.length === 0 || !canOperateThreads(settlingThreads),
             },
             ...(canSnoozeSelection
@@ -3592,8 +3590,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 className={cn(
                                   workingThreads.length + snoozedThreads.length === 0 && "mt-auto",
                                 )}
-                                label="Settled"
+                                label="Done"
                                 count={settledCount}
+                                description={
+                                  settledShelfExpanded && settledCount > 0
+                                    ? "Marked done or idle. Not deleted."
+                                    : undefined
+                                }
                                 dragging={from !== null}
                                 isDropTarget={dragTargetSection === "settled"}
                                 toggle={{
@@ -3608,7 +3611,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               <SidebarSectionPlaceholder
                                 key="settled-placeholder"
                                 marker="settled-placeholder"
-                                label="Settled"
+                                label="Done"
                                 showHint={
                                   from !== null &&
                                   (renderedSettledThreads.length === 0 ||

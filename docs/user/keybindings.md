@@ -159,7 +159,7 @@ a shortcut.
 shortcut; assign one in **Settings → Chat & input → Keyboard shortcuts**.
 
 `thread.undo` (`mod+z` by default) reverses the actions shown in the notice at the
-bottom of the sidebar, such as unpin, settle, snooze, archive, or discarding a
+bottom of the sidebar, such as unpin, mark as done, snooze, archive, or discarding a
 draft. Consecutive
 actions of the same kind undo together. The notice remains available for five
 seconds after the latest action. Right after an action, the shortcut works even

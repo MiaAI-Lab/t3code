@@ -118,7 +118,7 @@ afterEach(() => {
 
 describe("concurrent thread action Undo", () => {
   it.each([
-    ["settleThread", "settle", "unsettle", "Settled"],
+    ["settleThread", "settle", "unsettle", "Marked done"],
     ["snoozeThread", "snooze", "unsnooze", "Snoozed"],
     ["unpinThread", "unpin", "pin", "Unpinned"],
     ["archiveThread", "archive", "unarchive", "Archived"],
@@ -244,7 +244,10 @@ describe("settle and snooze Undo", () => {
     const add = vi.spyOn(toastManager, "add").mockReturnValue("toast");
     const actions = useThreadActions();
     await actions.settleThread(target);
-    expect(useThreadUndoNotice.getState().notice).toMatchObject({ action: "Settled", count: 1 });
+    expect(useThreadUndoNotice.getState().notice).toMatchObject({
+      action: "Marked done",
+      count: 1,
+    });
     expect(add).not.toHaveBeenCalled();
     const undo = currentUndo();
     await actions.unsettleThread(target);
@@ -347,7 +350,7 @@ describe("archive and delete Undo expiry", () => {
       await actions.settleThread(target);
       commands[lifecycle === "archiveThread" ? "archive" : "delete"].mockResolvedValue(failure);
       await actions[lifecycle](target);
-      expect(useThreadUndoNotice.getState().notice).toMatchObject({ action: "Settled" });
+      expect(useThreadUndoNotice.getState().notice).toMatchObject({ action: "Marked done" });
       await currentUndo()();
       expect(commands.unsettle).toHaveBeenCalledOnce();
     });

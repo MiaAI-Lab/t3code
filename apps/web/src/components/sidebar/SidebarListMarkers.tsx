@@ -115,6 +115,8 @@ export function SidebarSectionHeader(props: {
   label: string;
   /** A muted trailing count. */
   count: number;
+  /** A muted line under the open header that says what the section holds. */
+  description?: string | undefined;
   className?: string;
   dragging?: boolean;
   isDropTarget?: boolean;
@@ -130,7 +132,7 @@ export function SidebarSectionHeader(props: {
     <SortableSidebarMarker
       marker={props.marker}
       data-testid={`sidebar-${props.marker}`}
-      className={cn("relative mx-0.5 h-8", props.className)}
+      className={cn("relative mx-0.5", props.description === undefined && "h-8", props.className)}
     >
       <CollapsibleSectionHeader
         data-sidebar-row={`shelf:${shelf}`}
@@ -142,6 +144,9 @@ export function SidebarSectionHeader(props: {
       >
         {props.label}
       </CollapsibleSectionHeader>
+      {props.description === undefined ? null : (
+        <p className="px-2 pb-1.5 text-xs text-sidebar-muted-foreground/80">{props.description}</p>
+      )}
     </SortableSidebarMarker>
   );
 }

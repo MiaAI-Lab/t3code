@@ -11,7 +11,11 @@ export interface ManagedInferenceModel {
   readonly contextWindow?: number;
   readonly maxOutputTokens?: number;
   readonly reasoningEfforts?: ReadonlyArray<string>;
-  /** The engine reports, or T3 checked, that the model reads images. */
+  /**
+   * Whether the model reads images, as its engine reports or T3 checked; absent when unknown.
+   * Harnesses send images unless it is false, so an unknown model refuses them visibly instead
+   * of the harness dropping them unseen.
+   */
   readonly images?: boolean;
 }
 

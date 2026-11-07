@@ -1,4 +1,4 @@
-import type { EnvironmentId, ServerProvider } from "@t3tools/contracts";
+import type { EnvironmentId, InferenceServerId, ServerProvider } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import {
   inferenceModelImageGap,
@@ -7,9 +7,10 @@ import {
 } from "@t3tools/client-runtime/state/inference-presentation";
 import { useNavigate } from "@tanstack/react-router";
 import { CpuIcon, ImageOffIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useEnvironmentSettings } from "../../hooks/useSettings";
+import { useStableCallback } from "../../hooks/useStableCallback";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
@@ -35,23 +36,54 @@ export function useInferenceOutageBannerItem(
   const checkImages = useAtomCommand(serverEnvironment.checkInferenceModelImages, {
     label: "check images",
   });
-  const [checkingImages, setCheckingImages] = useState(false);
+  const canCheckImages = useAtomValue(
+    serverEnvironment.checkInferenceModelImages.permissionAtom(environmentId),
+  );
+  const [imageCheck, setImageCheck] = useState<{
+    readonly key: string;
+    readonly running: boolean;
+    readonly detail?: string;
+  } | null>(null);
   const outage = inferenceServerOutage({
     serverId: provider?.inferenceServerId,
     servers,
     snapshots: snapshots ?? [],
   });
+  const linked = {
+    serverId: provider?.inferenceServerId,
+    driver: provider?.driver,
+    modelSlug,
+    servers,
+    snapshots: snapshots ?? [],
+  };
+  const notServed = outage === null ? inferenceModelNotServed(linked) : null;
+  const imageGap =
+    outage === null && notServed === null && hasImages ? inferenceModelImageGap(linked) : null;
+  const imageKey = imageGap === null ? null : `${environmentId}:${imageGap.id}:${imageGap.model}`;
+  const runImageCheck = useStableCallback(
+    async (key: string, serverId: InferenceServerId, model: string) => {
+      setImageCheck({ key, running: true });
+      const result = await checkImages({ environmentId, input: { serverId, model } });
+      setImageCheck(
+        result._tag === "Success" && result.value.outcome === "unknown"
+          ? { key, running: false, detail: result.value.detail }
+          : null,
+      );
+    },
+  );
+  const autoChecked = useRef(new Set<string>());
+  const autoServerId = imageGap?.reason === "unchecked" && canCheckImages ? imageGap.id : null;
+  const autoModel = imageGap?.model ?? null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- an attached image starts the model's image check on the user's own server, once per model
+  useEffect(() => {
+    if (autoServerId === null || autoModel === null || imageKey === null) return;
+    if (autoChecked.current.has(imageKey)) return;
+    autoChecked.current.add(imageKey);
+    void runImageCheck(imageKey, autoServerId, autoModel);
+  }, [autoChecked, autoServerId, autoModel, imageKey, runImageCheck]);
   if (outage === null) {
-    const linked = {
-      serverId: provider?.inferenceServerId,
-      driver: provider?.driver,
-      modelSlug,
-      servers,
-      snapshots: snapshots ?? [],
-    };
-    const notServed = inferenceModelNotServed(linked);
-    const imageGap = hasImages ? inferenceModelImageGap(linked) : null;
-    if (notServed === null && imageGap !== null) {
+    if (imageGap !== null) {
+      const check = imageCheck?.key === imageKey ? imageCheck : null;
       return {
         id: `inference-images:${imageGap.id}:${imageGap.model}`,
         group: "environment",
@@ -60,27 +92,23 @@ export function useInferenceOutageBannerItem(
         title:
           imageGap.reason === "text-only"
             ? `${imageGap.model} reads text only`
-            : `${imageGap.model} has not been checked for images`,
+            : check?.running === true
+              ? `Checking whether ${imageGap.model} reads images`
+              : `Not known whether ${imageGap.model} reads images`,
         description:
           imageGap.reason === "text-only"
             ? "It will not see the attached image. Choose a model that reads images."
-            : "T3 Code sends images only to models it knows read them. Checking takes a few seconds.",
+            : `${check?.detail === undefined ? "" : `${check.detail} `}The image is sent anyway; if the model cannot read it, its server will say so.`,
         actions: (
           <>
-            {imageGap.reason === "unchecked" ? (
+            {imageGap.reason === "unchecked" && canCheckImages ? (
               <Button
                 size="xs"
                 variant="ghost"
-                disabled={checkingImages}
-                onClick={() => {
-                  setCheckingImages(true);
-                  void checkImages({
-                    environmentId,
-                    input: { serverId: imageGap.id, model: imageGap.model },
-                  }).finally(() => setCheckingImages(false));
-                }}
+                disabled={check?.running === true}
+                onClick={() => void runImageCheck(imageKey!, imageGap.id, imageGap.model)}
               >
-                {checkingImages ? "Checking images" : "Check images"}
+                {check?.running === true ? "Checking images" : "Check images"}
               </Button>
             ) : null}
             <Button size="xs" variant="ghost" onClick={onChooseModel}>

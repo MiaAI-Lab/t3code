@@ -22,7 +22,7 @@ const server: InferenceGateway.ManagedInferenceServer = {
       reasoningEfforts: ["high"],
       images: true,
     },
-    { id: "tiny" },
+    { id: "tiny", images: false },
   ],
 };
 const credential = { serverId: "rtx", baseUrl: "http://t3/inference/rtx/v1", token: "secret" };

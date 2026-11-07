@@ -58,9 +58,12 @@ export function withOpenCodeGateway(
                 ...(model.reasoningEfforts === undefined || model.reasoningEfforts.length === 0
                   ? {}
                   : { reasoning: true }),
-                ...(model.images === true
-                  ? { attachment: true, modalities: { input: ["text", "image"], output: ["text"] } }
-                  : {}),
+                ...(model.images === false
+                  ? {}
+                  : {
+                      attachment: true,
+                      modalities: { input: ["text", "image"], output: ["text"] },
+                    }),
                 ...(model.contextWindow === undefined
                   ? {}
                   : {

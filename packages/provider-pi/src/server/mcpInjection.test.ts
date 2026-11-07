@@ -39,7 +39,9 @@ const gateway = {
         reasoningEfforts: ["max", "high", "low"],
         images: true,
       },
-      { id: "plain" },
+      { id: "plain", images: false },
+      // Nobody checked: Pi sends images, so a text-only server refuses them visibly.
+      { id: "unchecked" },
     ],
   },
   credential: {
@@ -85,6 +87,15 @@ describe("pi T3 gateway provider", () => {
         name: "plain (rtx)",
         reasoning: false,
         input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128000,
+        maxTokens: 16384,
+      },
+      {
+        id: "unchecked",
+        name: "unchecked (rtx)",
+        reasoning: false,
+        input: ["text", "image"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 128000,
         maxTokens: 16384,

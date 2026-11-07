@@ -132,6 +132,15 @@ function staticPrefixOf(protocol: InferenceApiProtocol, body: Record<string, unk
   }
 }
 
+/** The canonical static prefix the gateway hashes for prompt cache health, for one request body. */
+export const inferenceStaticPrefix = (
+  protocol: InferenceApiProtocol,
+  body: Record<string, unknown>,
+) => {
+  const prefix = staticPrefixOf(protocol, body);
+  return prefix === undefined ? undefined : canonicalJson(prefix);
+};
+
 const tokenCount = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 

@@ -1,6 +1,6 @@
 # MCP tool use
 
-Replays small fake threads on Claude, Codex and Pi models and checks how they use T3's MCP tools: delegation, PR linking, previews, scheduling, and more. Each case reproduces a real mistake an agent made in T3 Code.
+Replays small fake threads on Claude, Codex, Pi and OpenCode and checks how they use T3's MCP tools: delegation, PR linking, previews, scheduling, and more. Each case reproduces a real mistake an agent made in T3 Code.
 
 The model sees what it sees in T3 Code. A trimmed capture of a real harness turn supplies the harness prompt and native tools. T3's instructions, tool descriptions, and schemas come from this checkout. A cheap model plays the shell, so nothing runs on your machine.
 
@@ -17,6 +17,7 @@ pnpm mcp-tool-use --model claude-opus-5-5 --out runs/opus
 - `--shell-model` picks the model that plays the shell: `claude-haiku-5-5` by default, or `gpt-6.1-terra` / `gpt-6-luna` through the same proxy, so Codex runs need no Anthropic key. Prefer Terra: Luna often contradicts the case's world (it calls named checkouts missing or files empty). Compare runs only when they used the same shell model.
 - Flags: `--case <ids>`, `--cases <file.ndjson>`, `--samples <n>` (default 2, and a 3rd when the first 2 disagree), `--concurrency <n>` (samples in flight, default 8), `--max-steps <n>`, `--effort <level>`, `--dry-run` (prints request bodies, no model calls), and `--context` (prints the size of T3's text and schemas, no key needed).
 - Pi runs against an OpenAI-compatible server, such as a local model: `--model openai-compatible:<model id> --base-url http://localhost:8888/v1`. `--shell-model openai-compatible:<model id>` lets the same server play the shell, so the run needs no key and costs nothing. Pi's prompt and native tools come from `templates/pi.json.gz`; T3's section and tools come from this checkout, all declared directly as the bridge does for `openai-completions` models. Pi has no native subagents, so `native-subagent` cases are skipped. Keep a local GPU at about 2 samples in flight per server.
+- `--harness <claude|codex|pi|opencode>` picks the harness apart from the model. Unset, it follows the model: Codex for `gpt-*`, Pi for `openai-compatible:*`, Claude Code otherwise. An `openai-compatible:` model also runs on `codex` or `opencode`, as T3 runs them on a server linked through its inference gateway; see [Local harnesses](#local-harnesses).
 - `--tool-profile lean` advertises only the lean tools, filtered the way Pi's bridge filters them (`packages/provider-core/src/server/mcpToolProfile.ts`). Cases whose prior turns call a tool the profile leaves out are skipped. Compare a lean run with a full run of the same cases, model and shell model.
 - `--baseline <results.jsonl> --stop-on-regression` stops as soon as a case that passed every baseline sample fails. Use it to test one copy change against a baseline run.
 - Cost: the existing non-device suite costs about $9 on Sonnet and $17 on Opus. The 16 device cases at 3 samples each cost about $5.70–5.90 on Opus and $2.90–3.40 on Sonnet (main's text–#25661), including the Haiku shell simulator; dry runs cost $0. Results record token costs for the agent and shell simulator. Codex proxy charges are outside that total; only its shell simulator is priced here, about $0.60–0.70 for the device cases.
@@ -244,6 +245,37 @@ The comparison that set the default ran GLM-5.3-Flash (local, `--effort high`, 6
 
 Lean did better on 14 cases and worse on 8, each by one or two samples. No lean sample called a tool lean leaves out. The largest drop, `provider-unavailable-cli-fallback` (2/3 to 0/3), ran out of steps in shell work in both profiles' failures. Lean still sends the visual and preview guidance in T3's orchestration section, whose tools it does not offer; the visual-preview cases do not cover that.
 
+## Local harnesses
+
+An `openai-compatible:` model runs on the harness T3 would give it on a linked server. Each replays a capture of the real harness, taken by `capture-local.ts` (Codex, OpenCode) or by hand (Pi):
+
+- **Pi** (`templates/pi.json.gz`): Pi's prompt and native tools, T3's section and the profile's T3 tools declared directly. A linked Pi defaults to the lean profile.
+- **Codex** (`templates/codex-local.json.gz`): Codex app-server started with the gateway's overrides (`codexGatewayLaunch`: model catalog, multi-agent and web search off) and T3's thread and full-access turn parameters. A local model gets no Code Mode: its prompt is Codex's fallback base instructions as a developer message, its tools plain functions, and T3's tools a `mcp__t3_code` namespace, schemas sanitized as Codex does. Each request goes through the gateway's own `flattenNamespaceTools`, and each response through its restorer, so the model sees `mcp__t3_code__delegate_task`. Tool output is worded as Codex words it. Every T3 tool is listed; the profile applies to Pi only.
+- **OpenCode** (`templates/opencode.json.gz`): an OpenCode 2 server with the gateway's provider overlay, T3's per-thread MCP server and its instructions entry. OpenCode 2 lists MCP tools only in its Code Mode catalog, as JavaScript run by its `execute` tool; the catalog shows the cheapest few and the model finds the rest with `search(...)`. The template keeps, per session variant (top-level or child, links on or off), the catalog OpenCode rendered for this checkout's T3 tools and its full search index. A run fails when T3's tools have changed since the capture; recapture then. Search ranking is approximated, `tools.opencode.*` calls return empty results except `models`, and long outputs are not truncated. OpenCode sends `reasoning_effort` only for a model variant; `--effort high` sends what the `high` variant sends, and without `--effort` it sends none, as a new T3 OpenCode thread does.
+
+Capture both from `evals/` with `pnpm mcp-tool-use:capture-local <codex|opencode>`. It needs the harness installed and no model: a scripted stub plays the model, and an MCP stub serves T3's tools from this checkout. Read the template before you commit it.
+
+Local runs record, per sample, tool-call validity apart from the grade (arguments that are not JSON, a tool the harness does not offer, arguments the tool's schema rejects, code that does not parse, and replies with output tokens but no text or tool call, which the server dropped), prompt tokens and the server's time to first token per model call, and two static-prefix hashes: the one T3's gateway computes for prompt cache health, and one of everything before the case's first message. The summary adds them up. `--harness-report` prints, for the `--case` cases, how each harness's first request differs: system size, tools, how T3's tools appear, effort and prefix hashes. It makes no model calls.
+
+```sh
+pnpm mcp-tool-use --model openai-compatible:GLM-5.3-Flash --shell-model openai-compatible:GLM-5.3-Flash \
+  --base-url http://localhost:8888/v1 --effort high --samples 3 --concurrency 2 \
+  --harness <pi|codex|opencode> [--tool-profile lean] --case <ids> --out runs/<harness>
+pnpm mcp-tool-use --model openai-compatible:GLM-5.3-Flash --tool-profile lean --harness-report --case <ids>
+```
+
+A run of GLM-5.3-Flash (local, `--effort high`, GLM as the shell, 3 samples, concurrency 2) on 32 of the 87 profile-comparison cases, stratified by area and kind:
+
+| Harness         | Pass        | Cases ≥2/3 | Schema-invalid calls | Empty replies | First request tokens | Tokens per sample |
+| --------------- | ----------- | ---------- | -------------------- | ------------- | -------------------- | ----------------- |
+| Pi 1.5.0 (lean) | 64/96 (67%) | 22/32      | 3                    | 0             | ~9.7k                | ~46k              |
+| Codex 0.167.0   | 75/96 (78%) | 26/32      | 5                    | 1             | ~22k                 | ~91k              |
+| OpenCode 2.2.5  | 63/96 (66%) | 22/32      | 9 (+2 unknown paths) | 5             | ~8.1k                | ~70k              |
+
+Codex's prompt is the largest: its fallback base instructions and every T3 tool, flattened. OpenCode shows 4 of T3's 68 tools in its catalog, the ones with the shortest signatures, so the model calls the rest after `search`, or by name without their signature; most of its schema-invalid calls are `delegate_task` with guessed fields, and it took 6.5 model calls per sample against about 4. Telling OpenCode where T3's tools are and to read a signature first gained 3 samples, within noise, and was not kept. All of OpenCode's empty replies failed their sample; the server generated tokens and returned nothing. The schema-invalid `t3_thread_launch` calls on every harness omit `workspaceStrategy.baseRef`, which T3's decoder requires for a worktree but the advertised schema does not.
+
+Codex and OpenCode code-mode cells take more model calls, so OpenCode gets Codex's larger step budget. Neither runs native subagents here: T3 turns Codex's multi-agent off on a linked server, and OpenCode's are not modelled, so `native-subagent` cases are skipped on every local harness.
+
 ## Where T3's text lives
 
 - `packages/provider-core/src/server/runtimeInstructions.ts`
@@ -254,7 +286,7 @@ Lean did better on 14 cases and worse on 8, each by one or two samples. No lean 
 
 ## Templates
 
-`templates/` holds one trimmed capture per harness. Refresh them when a harness changes its prompt or native tools:
+`templates/` holds one trimmed capture per harness. Refresh them when a harness changes its prompt or native tools. For Codex and OpenCode on a linked server, run `capture-local.ts` (see [Local harnesses](#local-harnesses)); for the rest:
 
 1. Capture one T3 Code turn through CLIProxyAPI, with T3's MCP server connected. For Pi, record the chat completion request Pi sends to an OpenAI-compatible server with T3's bridge loaded (`pi -p` with `--no-skills` in an empty folder works), keep its system message, native tools and `reasoning_effort` under `request.provider_native`, and replace home paths and the working directory with `/home/user`.
 2. For Claude and Codex, from `evals/`, run `pnpm mcp-tool-use:trim-capture <claude|codex> <capture.json> mcp-tool-use/templates/<claude|codex>.json.gz`. It keeps only what `run.ts` reads, and removes user instructions, the user's own skills and agents, account ids, and home paths.

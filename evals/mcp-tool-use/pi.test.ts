@@ -71,7 +71,13 @@ it("reads a chat completion as the runner's response", () => {
     content: [
       { type: "thinking", thinking: "Need the shell.", field: "reasoning_content" },
       { type: "tool_use", id: "x", name: "bash", input: { command: "ls" } },
-      { type: "tool_use", id: "y", name: "bash", input: { arguments: "{not json" } },
+      {
+        type: "tool_use",
+        id: "y",
+        name: "bash",
+        input: { arguments: "{not json" },
+        malformed: true,
+      },
     ],
     stop_reason: "tool_use",
     usage: { input_tokens: 40, output_tokens: 7, cache_read_input_tokens: 60 },

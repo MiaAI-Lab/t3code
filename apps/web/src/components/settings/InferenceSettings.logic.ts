@@ -180,13 +180,22 @@ export type InferenceServerLink =
   | { readonly kind: "missing"; readonly id: string };
 
 /** What an instance's `inferenceServerId` points at in its environment's settings. */
+/** Optimistic removals hold `null` until the server echoes the patch. */
+export function presentInferenceServers(
+  servers: InferenceServers | undefined,
+): ReadonlyArray<readonly [InferenceServerId, InferenceServerConfig]> {
+  return Object.entries(servers ?? {}).flatMap(([id, config]) =>
+    config ? [[id as InferenceServerId, config] as const] : [],
+  );
+}
+
 export function resolveInferenceServerLink(
   inferenceServerId: string | undefined,
   servers: InferenceServers,
 ): InferenceServerLink {
   if (inferenceServerId === undefined) return { kind: "none" };
   const config = servers[inferenceServerId as InferenceServerId];
-  if (config === undefined) return { kind: "missing", id: inferenceServerId };
+  if (!config) return { kind: "missing", id: inferenceServerId };
   const name = inferenceServerDisplayName(inferenceServerId, config);
   return config.enabled ? { kind: "enabled", name } : { kind: "disabled", name };
 }

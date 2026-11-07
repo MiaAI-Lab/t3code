@@ -32,6 +32,7 @@ import {
   describeInferenceModelContext,
   describeInferenceServerLoad,
   inferenceServerDisplayName,
+  presentInferenceServers,
 } from "./InferenceSettings.logic";
 import {
   classifyProviderEnvironmentAccess,
@@ -109,8 +110,8 @@ function EnvironmentInferenceServers({
   const [dialog, setDialog] = useState<
     null | { readonly mode: "add" } | { readonly mode: "edit"; readonly id: InferenceServerId }
   >(null);
-  const entries = Object.entries(servers) as Array<[InferenceServerId, InferenceServerConfig]>;
-  const editingConfig = dialog?.mode === "edit" ? servers[dialog.id] : undefined;
+  const entries = presentInferenceServers(servers);
+  const editingConfig = dialog?.mode === "edit" ? (servers?.[dialog.id] ?? undefined) : undefined;
   const editing =
     dialog?.mode === "edit" && editingConfig !== undefined
       ? { id: dialog.id, config: editingConfig }

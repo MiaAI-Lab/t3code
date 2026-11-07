@@ -8,6 +8,7 @@ import {
   inferenceServerFromDraft,
   inferenceServerIdFromName,
   normalizeInferenceServerBaseUrl,
+  presentInferenceServers,
   resolveInferenceServerLink,
 } from "./InferenceSettings.logic";
 
@@ -134,5 +135,14 @@ describe("resolveInferenceServerLink", () => {
     expect(resolveInferenceServerLink("rtx", servers)).toEqual({ kind: "enabled", name: "RTX" });
     expect(resolveInferenceServerLink("old", servers)).toEqual({ kind: "disabled", name: "old" });
     expect(resolveInferenceServerLink("gone", servers)).toEqual({ kind: "missing", id: "gone" });
+  });
+
+  it("treats a removal the server has not confirmed as gone", () => {
+    const removing = {
+      ...servers,
+      [InferenceServerId.make("old")]: null,
+    } as unknown as typeof servers;
+    expect(resolveInferenceServerLink("old", removing)).toEqual({ kind: "missing", id: "old" });
+    expect(presentInferenceServers(removing).map(([id]) => id)).toEqual(["rtx"]);
   });
 });

@@ -73,7 +73,11 @@ import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayo
 import { AcpSessionManagementSection } from "./AcpSessionManagementSection";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
 import { readCodexSetupMode } from "./CodexSetupSection.logic";
-import { inferenceServerDisplayName, resolveInferenceServerLink } from "./InferenceSettings.logic";
+import {
+  inferenceServerDisplayName,
+  presentInferenceServers,
+  resolveInferenceServerLink,
+} from "./InferenceSettings.logic";
 import {
   getProviderVersionAdvisoryPresentation,
   PROVIDER_STATUS_STYLES,
@@ -854,8 +858,8 @@ export function ProviderInstanceCard({
   };
 
   const inferenceLink = resolveInferenceServerLink(instance.inferenceServerId, inferenceServers);
-  const inferenceServerOptions = Object.entries(inferenceServers).map(([id, config]) => ({
-    id,
+  const inferenceServerOptions = presentInferenceServers(inferenceServers).map(([id, config]) => ({
+    id: id as string,
     label: `${inferenceServerDisplayName(id, config)}${config.enabled ? "" : " (disabled)"}`,
   }));
   if (inferenceLink.kind === "missing") {

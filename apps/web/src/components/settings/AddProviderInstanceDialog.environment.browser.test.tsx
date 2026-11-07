@@ -129,9 +129,13 @@ async function type(selector: string, value: string) {
 }
 const signInStep = () => document.querySelector('[aria-label="Sign-in step"]');
 
+// Local-first providers lead the list, so Codex is no longer preselected.
+const chooseCodex = () => act(async () => radio("Codex")!.click());
+
 async function prepareCodexInstance() {
   await using stack = new AsyncDisposableStack();
   const screen = stack.use(await render(dialog()));
+  await chooseCodex();
   await click("Configure manually");
   await type("#add-provider-label", "Work");
   await click("Next");
@@ -155,6 +159,7 @@ describe("AddProviderInstanceDialog environment routing", () => {
       providerInstances: { codex_2: { driver: "codex", enabled: false } },
     });
     await using _screen = await render(dialog());
+    await chooseCodex();
     await click("Configure manually");
     await click("Next");
     await click("Add instance");

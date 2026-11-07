@@ -24,11 +24,11 @@ const fakeEnvironment = ServerEnvironment.ServerEnvironment.of({
   getDescriptor: Effect.die("unused"),
 });
 
-const makeRegistry = (now: () => number, httpServer = fakeHttpServer) =>
+const makeRegistry = (now: () => number, httpServer = fakeHttpServer, livenessWindowMs = 100) =>
   McpSessionRegistry.__testing
     .make({
       now,
-      livenessWindowMs: 100,
+      livenessWindowMs,
     })
     .pipe(
       Effect.provideService(HttpServer.HttpServer, httpServer),
@@ -272,25 +272,42 @@ it.effect("keeps inference credentials apart from MCP and revokes them with the 
   }),
 );
 
-it.effect("background inference credentials have no thread, expire, and end with their scope", () =>
-  Effect.gen(function* () {
-    let timestamp = 1_000;
-    const registry = yield* makeRegistry(() => timestamp);
-    const serverId = InferenceServerId.make("rtx");
-    const scope = yield* Scope.make();
-    const background = yield* registry
-      .issueBackgroundInference(serverId)
-      .pipe(Scope.provide(scope));
-    expect(background.baseUrl).toBe("http://127.0.0.1:43123/inference/rtx/v1");
-    expect(yield* registry.resolve(background.token)).toBeUndefined();
-    expect(yield* registry.resolveInference(background.token)).toEqual({ serverId });
-    yield* Scope.close(scope, Exit.void);
-    expect(yield* registry.resolveInference(background.token)).toBeUndefined();
+it.effect(
+  "background inference credentials have no thread, expire unless an instance holds them, and end with their scope",
+  () =>
+    Effect.gen(function* () {
+      let timestamp = 1_000;
+      const registry = yield* makeRegistry(
+        () => timestamp,
+        fakeHttpServer,
+        2 * McpSessionRegistry.BACKGROUND_INFERENCE_TTL_MS,
+      );
+      const serverId = InferenceServerId.make("rtx");
+      const scope = yield* Scope.make();
+      const background = yield* registry
+        .issueBackgroundInference(serverId)
+        .pipe(Scope.provide(scope));
+      expect(background.baseUrl).toBe("http://127.0.0.1:43123/inference/rtx/v1");
+      expect(yield* registry.resolve(background.token)).toBeUndefined();
+      expect(yield* registry.resolveInference(background.token)).toEqual({ serverId });
+      yield* Scope.close(scope, Exit.void);
+      expect(yield* registry.resolveInference(background.token)).toBeUndefined();
 
-    const lingering = yield* registry
-      .issueBackgroundInference(serverId)
-      .pipe(Scope.provide(yield* Scope.make()));
-    timestamp += McpSessionRegistry.BACKGROUND_INFERENCE_TTL_MS + 1;
-    expect(yield* registry.resolveInference(lingering.token)).toBeUndefined();
-  }),
+      const lingering = yield* registry
+        .issueBackgroundInference(serverId)
+        .pipe(Scope.provide(yield* Scope.make()));
+      const instanceId = ProviderInstanceId.make("opencode");
+      const processScope = yield* Scope.make();
+      const instance = yield* registry
+        .issueBackgroundInference(serverId, instanceId)
+        .pipe(Scope.provide(processScope));
+      timestamp += McpSessionRegistry.BACKGROUND_INFERENCE_TTL_MS + 1;
+      expect(yield* registry.resolveInference(lingering.token)).toBeUndefined();
+      expect(yield* registry.resolveInference(instance.token)).toEqual({
+        serverId,
+        providerInstanceId: instanceId,
+      });
+      yield* Scope.close(processScope, Exit.void);
+      expect(yield* registry.resolveInference(instance.token)).toBeUndefined();
+    }),
 );

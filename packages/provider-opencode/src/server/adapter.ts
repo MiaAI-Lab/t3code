@@ -1,3 +1,8 @@
+import {
+  makeOpenCodeGatewaySource,
+  type OpenCodeGatewaySource,
+  unmanagedOpenCodeGatewaySource,
+} from "./gateway.ts";
 import type {
   Event as OpenCodeEvent,
   Message as OpenCodeMessage,
@@ -419,6 +424,8 @@ export interface OpenCodeAdapterV2Options {
   readonly instanceId: ProviderInstanceId;
   readonly settings: OpenCodeSettings;
   readonly environment: NodeJS.ProcessEnv;
+  /** Per-thread OpenCode processes carry the thread's gateway credential; absent means unmanaged. */
+  readonly gateway?: OpenCodeGatewaySource;
   readonly nativeEventLogger?: ProviderEventLoggers.EventNdjsonLogger;
 }
 
@@ -949,6 +956,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
       function* (input: ProviderAdapter.ProviderAdapterV2OpenSessionInput) {
         const scope = yield* Effect.scope;
         const cwd = input.runtimePolicy.cwd ?? host.paths.cwd;
+        const mcpSession = yield* mcpSessions.read(input.threadId);
         const connection = yield* runtime.connectToOpenCodeServer({
           binaryPath: options.settings.binaryPath,
           directory: cwd,
@@ -956,7 +964,10 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
           ...(settingsSecretLiteral(options.settings.serverPassword)
             ? { serverPassword: settingsSecretLiteral(options.settings.serverPassword) }
             : {}),
-          environment: options.environment,
+          environment: yield* (options.gateway ?? unmanagedOpenCodeGatewaySource).forSession(
+            options.environment,
+            mcpSession,
+          ),
         });
         const client = runtime.createOpenCodeSdkClient({
           baseUrl: connection.url,
@@ -966,7 +977,6 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
             : {}),
         });
 
-        const mcpSession = yield* mcpSessions.read(input.threadId);
         const hasT3Mcp = mcpSession !== undefined && !connection.external;
         const orchestrationSystemPrompt = t3OrchestrationSystemPrompt(
           hasT3Mcp,
@@ -3780,6 +3790,7 @@ export const OpenCodeAdapterV2Driver: ProviderAdapterDriver<
         instanceId: input.instanceId,
         settings: { ...input.config, enabled: input.enabled },
         environment: yield* mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+        gateway: yield* makeOpenCodeGatewaySource(input.instanceId),
         ...(providerEventLoggers.native === undefined
           ? {}
           : { nativeEventLogger: providerEventLoggers.native }),

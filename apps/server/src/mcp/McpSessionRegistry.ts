@@ -25,7 +25,10 @@ export interface McpCredentialRequest {
   readonly inferenceServerId?: InferenceServerId;
 }
 
-/** Who holds an inference gateway credential. No thread means T3's own background work. */
+/**
+ * Who holds an inference gateway credential. No thread means T3's own background work, unless an
+ * instance holds it for a harness process that serves many threads.
+ */
 export interface InferenceCaller {
   readonly serverId: InferenceServerId;
   readonly threadId?: ThreadId;
@@ -44,9 +47,13 @@ export interface McpSessionRegistryShape {
   ) => Effect.Effect<McpInvocationContext.McpThreadInvocationScope | undefined>;
   /** Only inference credentials resolve here; MCP, OAuth, and session tokens never do. */
   readonly resolveInference: (rawToken: string) => Effect.Effect<InferenceCaller | undefined>;
-  /** For discovery and text generation processes; revoked when the scope closes. */
+  /**
+   * For discovery and text generation processes; revoked when the scope closes. With an instance
+   * it is for that instance's long-lived harness process and does not expire on its own.
+   */
   readonly issueBackgroundInference: (
     serverId: InferenceServerId,
+    providerInstanceId?: ProviderInstanceId,
   ) => Effect.Effect<McpProviderSession.InferenceGatewayCredential, never, Scope.Scope>;
   readonly touch: (threadId: ThreadId) => Effect.Effect<void>;
   readonly revokeProviderSession: (providerSessionId: string) => Effect.Effect<void>;
@@ -240,7 +247,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
 
   const issueBackgroundInference: McpSessionRegistryShape["issueBackgroundInference"] = Effect.fn(
     "McpSessionRegistry.issueBackgroundInference",
-  )(function* (serverId) {
+  )(function* (serverId, providerInstanceId) {
     const issuedAt = yield* currentTimeMillis;
     const minted = yield* Effect.acquireRelease(mintToken, ({ tokenHash }) =>
       SynchronizedRef.update(state, ({ records }) => {
@@ -252,9 +259,10 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     yield* store({
       kind: "inference",
       tokenHash: minted.tokenHash,
-      caller: { serverId },
       lastAliveAt: issuedAt,
-      expiresAt: issuedAt + BACKGROUND_INFERENCE_TTL_MS,
+      ...(providerInstanceId === undefined
+        ? { caller: { serverId }, expiresAt: issuedAt + BACKGROUND_INFERENCE_TTL_MS }
+        : { caller: { serverId, providerInstanceId } }),
     });
     return { serverId, baseUrl: gatewayBaseUrl(serverId), token: minted.rawToken };
   });

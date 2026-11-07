@@ -222,7 +222,10 @@ const make = Effect.gen(function* () {
   ) {
     const unattributed = { runId: null, parentRunId: null };
     if (caller.threadId === undefined) {
-      return { purpose: "background" as InferenceRequestPurpose, ...unattributed };
+      // An instance-held credential serves a harness process shared by its threads' chats.
+      const purpose: InferenceRequestPurpose =
+        caller.providerInstanceId === undefined ? "background" : "interactive";
+      return { purpose, ...unattributed };
     }
     if (Option.isNone(threads)) return { purpose: "interactive" as const, ...unattributed };
     const threadId = caller.threadId;

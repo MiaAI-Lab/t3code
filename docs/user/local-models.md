@@ -54,7 +54,7 @@ and time to first token.
 | Provider | Configure the endpoint in                                                           | Needs                               |
 | -------- | ----------------------------------------------------------------------------------- | ----------------------------------- |
 | Pi       | Pi's `~/.pi/agent/models.json`                                                      | OpenAI Chat Completions             |
-| OpenCode | OpenCode's `opencode.json`                                                          | OpenAI Chat Completions             |
+| OpenCode | OpenCode's `opencode.json`, or a link to a registered server                        | OpenAI Chat Completions             |
 | Claude   | The instance's **Environment variables** in T3 Code                                 | Anthropic Messages (`/v1/messages`) |
 | Codex    | Codex's `config.toml`, with the instance's setup set to use your existing Codex CLI | OpenAI Responses (`/v1/responses`)  |
 
@@ -106,6 +106,15 @@ Add an OpenAI-compatible provider to `opencode.json`:
 OpenCode's **Server URL** setting in T3 Code is for an OpenCode server, not your
 inference server. Leave it empty. See [OpenCode](./providers-opencode.md).
 
+To skip this file, register the server in **Settings → Inference** and link the OpenCode
+instance to it. T3 Code then adds the server to OpenCode as `t3-<server>` with every model it
+reports, sized from what the server advertises, and sends its requests through the gateway, like
+[Pi on a registered server](#pi-on-a-registered-server). Pick a model such as
+`t3-rtx/your-model-id`. Requests from OpenCode 2 are counted per instance, not per thread, because
+one OpenCode server runs all of the instance's threads. This needs the server to serve OpenAI Chat
+Completions, and does not apply when **Server URL** points at an OpenCode server you run yourself;
+the provider's status says when the link is not used and why.
+
 ### Claude
 
 Add a Claude instance with its own config directory, then set these
@@ -141,6 +150,12 @@ config on the cloud, put the same settings in the instance's launch arguments
 instead, such as `-c model_provider="ollama" -c model="your-model-id"` for
 Codex's built-in Ollama or `lmstudio` providers. Use `-c` overrides rather than
 `--oss`: chat runs `codex app-server`, which accepts only `-c`.
+
+Linking a Codex instance to a registered server that serves the Responses API does this for you,
+and is **experimental**. T3 Code starts Codex with a `t3-<server>` provider that goes through the
+gateway, the model picker offers only that server's models, and Codex's multi-agent and web search
+tools are turned off. Codex sends T3 Code's own tools as a tool group that some servers reject
+("function tools only"); on such a server, threads fail until it accepts them.
 
 ## Mark the instance as local
 

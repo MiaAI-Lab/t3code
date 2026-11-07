@@ -1,5 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import {
+  type InferenceApiProtocol,
   type InferenceServerSnapshot,
   InferenceServerId,
   ProviderDriverKind,
@@ -35,38 +36,45 @@ const ready: InferenceServerSnapshot = {
   apiProtocols: ["chat-completions", "messages"],
 };
 
-const access = (snapshot: InferenceServerSnapshot, enabled = true) =>
-  Effect.gen(function* () {
-    const service = yield* InferenceGateway.InferenceGatewayAccess;
-    const managed = yield* service.managedServer(pi);
-    const background = yield* Effect.scoped(service.backgroundCredential(pi));
-    return { managed, background };
-  }).pipe(
-    Effect.provide(
-      InferenceGatewayAccess.layer.pipe(
-        Layer.provide([
-          ServerSettings.layerTest({
-            inferenceServers: {
-              [rtx]: { baseUrl: "http://localhost:8888/v1", apiKey: "", enabled },
-            },
-            providerInstances: {
-              [pi]: { driver: ProviderDriverKind.make("pi"), inferenceServerId: rtx },
-            },
+const layerFor = (snapshot: InferenceServerSnapshot, enabled = true) =>
+  InferenceGatewayAccess.layer.pipe(
+    Layer.provide([
+      ServerSettings.layerTest({
+        inferenceServers: {
+          [rtx]: { baseUrl: "http://localhost:8888/v1", apiKey: "", enabled },
+        },
+        providerInstances: {
+          [pi]: { driver: ProviderDriverKind.make("pi"), inferenceServerId: rtx },
+        },
+      }),
+      Layer.mock(InferenceServerRegistry.InferenceServerRegistry)({
+        current: Effect.succeed([snapshot]),
+      }),
+      Layer.mock(McpSessionRegistry.McpSessionRegistry)({
+        issueBackgroundInference: (serverId, holder) =>
+          Effect.succeed({
+            serverId,
+            baseUrl: "http://t3/inference/rtx/v1",
+            token: holder === undefined ? "bg" : `instance:${holder}`,
           }),
-          Layer.mock(InferenceServerRegistry.InferenceServerRegistry)({
-            current: Effect.succeed([snapshot]),
-          }),
-          Layer.mock(McpSessionRegistry.McpSessionRegistry)({
-            issueBackgroundInference: (serverId) =>
-              Effect.succeed({ serverId, baseUrl: "http://t3/inference/rtx/v1", token: "bg" }),
-          }),
-        ]),
-      ),
-    ),
+      }),
+    ]),
   );
 
+const access = (
+  snapshot: InferenceServerSnapshot,
+  enabled = true,
+  protocol: InferenceApiProtocol = "chat-completions",
+) =>
+  Effect.gen(function* () {
+    const service = yield* InferenceGateway.InferenceGatewayAccess;
+    const managed = yield* service.managedServer(pi, protocol);
+    const background = yield* Effect.scoped(service.backgroundCredential(pi, protocol));
+    return { managed, background };
+  }).pipe(Effect.provide(layerFor(snapshot, enabled)));
+
 it.effect(
-  "manages a linked server only while it is enabled, ready, and serves chat completions",
+  "manages a linked server only while it is enabled, ready, and serves the harness's protocol",
   () =>
     Effect.gen(function* () {
       const managed = yield* access(ready);
@@ -82,8 +90,24 @@ it.effect(
         yield* access({ ...ready, status: "unreachable" }),
         yield* access({ ...ready, apiProtocols: ["messages"] }),
         yield* access({ ...ready, models: [] }),
+        yield* access(ready, true, "responses"),
       ]) {
         expect(unmanaged).toEqual({ managed: undefined, background: undefined });
       }
     }),
+);
+
+it.effect("says why a linked server is not managed, and issues instance credentials", () =>
+  Effect.gen(function* () {
+    const service = yield* InferenceGateway.InferenceGatewayAccess;
+    expect(yield* service.resolve(pi, "responses")).toEqual({
+      managed: false,
+      reason: "Inference server rtx does not serve the OpenAI Responses API this provider needs.",
+    });
+    expect(yield* service.resolve(ProviderInstanceId.make("unlinked"), "responses")).toBe(
+      undefined,
+    );
+    const held = yield* Effect.scoped(service.instanceCredential(pi, "chat-completions"));
+    expect(held?.credential.token).toBe(`instance:${pi}`);
+  }).pipe(Effect.provide(layerFor(ready))),
 );

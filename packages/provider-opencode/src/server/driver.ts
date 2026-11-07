@@ -44,6 +44,7 @@ import {
   type ProbedOpenCode,
 } from "./versionProbe.ts";
 import * as OpenCodeServerOwner from "./OpenCodeServerOwner.ts";
+import { makeOpenCodeGatewaySource, openCodeGatewayStatusNote } from "./gateway.ts";
 import * as OpenCode2Client from "./v2/OpenCode2Client.ts";
 import * as OpenCode2Server from "./v2/OpenCode2Server.ts";
 import {
@@ -279,12 +280,14 @@ export const OpenCodeDriver: ProviderDriver<
           }),
       ),
     );
+    const gateway = yield* makeOpenCodeGatewaySource(instanceId);
     const openCode2Server = yield* OpenCode2Server.make({
       binaryPath: effectiveConfig.binaryPath,
       serverUrl: effectiveConfig.serverUrl,
       serverPassword: effectiveConfig.serverPassword,
       directory: host.paths.cwd,
       environment: processEnv,
+      prepareEnvironment: gateway.forProcess,
     }).pipe(
       Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime),
       Effect.provideService(
@@ -340,6 +343,7 @@ export const OpenCodeDriver: ProviderDriver<
       directory: host.paths.cwd,
       ...(effectiveConfig.serverPassword ? { serverPassword: effectiveConfig.serverPassword } : {}),
       environment: processEnv,
+      prepareEnvironment: gateway.forProcess,
     });
     const textGeneration = selectOpenCodeRuntimeTextGeneration(
       runtimeProbe,
@@ -373,10 +377,23 @@ export const OpenCodeDriver: ProviderDriver<
           Effect.annotateSpans({ providerInstanceId: instanceId }),
         ),
         usageLimits: checkUsageLimits,
+        gateway: gateway.resolution,
       },
       { concurrency: "unbounded" },
     ).pipe(
-      Effect.map(({ provider, usageLimits }) => ({ ...provider, usageLimits })),
+      Effect.map(({ provider, usageLimits, gateway }) => {
+        const note = openCodeGatewayStatusNote(
+          gateway,
+          effectiveConfig.serverUrl.trim().length > 0,
+        );
+        return {
+          ...provider,
+          usageLimits,
+          ...(note === undefined || !provider.enabled
+            ? {}
+            : { message: provider.message ? `${provider.message} ${note}` : note }),
+        };
+      }),
       Effect.map(stampIdentity),
       Effect.provideService(OpenCodeServerOwner.OpenCodeServerOwner, serverOwner),
       Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime),

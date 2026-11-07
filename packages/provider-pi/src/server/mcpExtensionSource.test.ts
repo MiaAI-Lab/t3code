@@ -229,6 +229,26 @@ describe("Pi MCP tool exposure", () => {
     assert.include(bridge.getActiveTools(), "mcp__t3-code__preview_snapshot");
   });
 
+  it.each([
+    ["lean", ["orchestrator_capabilities", "delegate_task", "task_status"]],
+    ["full", ["orchestrator_capabilities", "delegate_task", "task_status", "preview_snapshot"]],
+    ["unset", ["orchestrator_capabilities", "delegate_task", "task_status", "preview_snapshot"]],
+  ] as const)("the %s tool profile registers only its tools", async (toolProfile, expected) => {
+    const bridge = await loadMcpBridge({
+      modern: true,
+      toolSearchAvailable: true,
+      ...(toolProfile === "unset" ? {} : { toolProfile }),
+    });
+    const gatewayContext = { model: { api: "openai-completions" }, ui: { notify: assert.fail } };
+    await bridge.handlers.get("session_start")!({ systemPrompt: "" }, gatewayContext);
+    const prefixed = expected.map((name) => `mcp__t3-code__${name}`);
+    assert.deepEqual(
+      bridge.tools.filter((tool) => tool.exposure !== "hidden").map((tool) => tool.name),
+      prefixed,
+    );
+    assert.deepEqual(bridge.getActiveTools(), ["read", "tool_search", ...prefixed]);
+  });
+
   it.each(["legacy Pi", "disabled tool search"])(
     "keeps tool execution available with %s",
     async (mode) => {

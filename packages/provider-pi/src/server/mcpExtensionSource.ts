@@ -1,4 +1,5 @@
 // No T3 imports inside the string; resolve Pi and typebox from the user's Pi install.
+import { LEAN_MCP_TOOL_NAMES } from "@t3tools/provider-core/server/mcpToolProfile";
 import { T3_CODE_ORCHESTRATION_INSTRUCTIONS } from "@t3tools/provider-core/server/orchestrationInstructions";
 
 export const PI_T3_MCP_EXTENSION_FILENAME = "pi-t3-mcp-extension.ts";
@@ -7,6 +8,7 @@ export const T3_MCP_URL_ENV = "T3_MCP_URL";
 export const T3_MCP_BEARER_ENV = "T3_MCP_BEARER_TOKEN";
 export const T3_PI_RUNTIME_MODE_ENV = "T3_PI_RUNTIME_MODE";
 export const T3_PI_MCP_EXTENSION_PATH_ENV = "T3_PI_MCP_EXTENSION_PATH";
+export const T3_PI_TOOL_PROFILE_ENV = "T3_PI_TOOL_PROFILE";
 
 // These tools trigger file-change approvals, bypassed by Auto-accept edits.
 export const PI_FILE_CHANGE_TOOLS = ["edit", "write"] as const;
@@ -21,6 +23,8 @@ const URL_ENV = ${JSON.stringify(T3_MCP_URL_ENV)};
 const TOKEN_ENV = ${JSON.stringify(T3_MCP_BEARER_ENV)};
 const RUNTIME_MODE_ENV = ${JSON.stringify(T3_PI_RUNTIME_MODE_ENV)};
 const EXTENSION_PATH_ENV = ${JSON.stringify(T3_PI_MCP_EXTENSION_PATH_ENV)};
+const TOOL_PROFILE_ENV = ${JSON.stringify(T3_PI_TOOL_PROFILE_ENV)};
+const LEAN_TOOLS = new Set(${JSON.stringify(LEAN_MCP_TOOL_NAMES)});
 const ORCHESTRATION_INSTRUCTIONS = ${JSON.stringify(T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim())};
 const PROTOCOL = "2025-06-18";
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
@@ -414,7 +418,9 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     const attempt = (async () => {
       const signal = AbortSignal.timeout(10_000);
       await client.connect(signal);
-      catalog = await client.listTools(signal);
+      const tools = await client.listTools(signal);
+      // Lean leaves the other tools out entirely, so their schemas never reach the model.
+      catalog = env(TOOL_PROFILE_ENV) === "lean" ? tools.filter((tool) => LEAN_TOOLS.has(tool.name)) : tools;
       registerTools();
     })();
     started = attempt;

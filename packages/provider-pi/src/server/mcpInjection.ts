@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 
 import type { McpProviderSessionConfig } from "@t3tools/provider-core/server/mcpSession";
+import type { McpToolProfile } from "@t3tools/provider-core/server/mcpToolProfile";
 import {
   PI_T3_MCP_EXTENSION_FILENAME,
   PI_T3_MCP_EXTENSION_SOURCE,
@@ -10,7 +11,9 @@ import {
   T3_MCP_URL_ENV,
   T3_PI_RUNTIME_MODE_ENV,
   T3_PI_MCP_EXTENSION_PATH_ENV,
+  T3_PI_TOOL_PROFILE_ENV,
 } from "./mcpExtensionSource.ts";
+import type { PiSettings } from "../settings.ts";
 
 const RESERVED_PI_LAUNCH_ARGUMENTS = new Set([
   "--continue",
@@ -237,6 +240,18 @@ export const materializePiT3McpExtension = Effect.fn("materializePiT3McpExtensio
   return dest;
 });
 
+// Lean becomes automatic for linked instances only once GLM evals show no regression against full.
+const AUTO_TOOL_PROFILE_WHEN_LINKED: McpToolProfile = "full";
+
+/** An explicit profile wins; "auto" follows the instance's link to an enabled inference server. */
+export function resolvePiToolProfile(
+  setting: PiSettings["toolProfile"],
+  linkedToInferenceServer: boolean,
+): McpToolProfile {
+  if (setting !== "auto") return setting;
+  return linkedToInferenceServer ? AUTO_TOOL_PROFILE_WHEN_LINKED : "full";
+}
+
 export function buildPiRpcLaunch(input: {
   readonly launchArgs: ReadonlyArray<string>;
   readonly environment: NodeJS.ProcessEnv;
@@ -250,6 +265,7 @@ export function buildPiRpcLaunch(input: {
   readonly disableExtensions?: boolean;
   readonly disableTools?: boolean;
   readonly runtimeMode?: "approval-required" | "auto-accept-edits" | "auto" | "full-access";
+  readonly toolProfile?: McpToolProfile;
 }): {
   readonly args: ReadonlyArray<string>;
   readonly env: NodeJS.ProcessEnv;
@@ -288,6 +304,7 @@ export function buildPiRpcLaunch(input: {
   delete environment[T3_MCP_URL_ENV];
   delete environment[T3_MCP_BEARER_ENV];
   delete environment[T3_PI_MCP_EXTENSION_PATH_ENV];
+  delete environment[T3_PI_TOOL_PROFILE_ENV];
 
   return {
     args,
@@ -301,6 +318,9 @@ export function buildPiRpcLaunch(input: {
             [T3_PI_RUNTIME_MODE_ENV]:
               input.runtimeMode === "auto" ? "approval-required" : input.runtimeMode,
           }
+        : {}),
+      ...(hasT3Mcp && input.toolProfile !== undefined
+        ? { [T3_PI_TOOL_PROFILE_ENV]: input.toolProfile }
         : {}),
       ...(hasT3Mcp && input.mcpSession !== undefined
         ? {

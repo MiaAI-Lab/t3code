@@ -289,6 +289,10 @@ const buildEntry = Effect.fn("ProviderInstanceRegistry.buildEntry")(function* <R
       accentColor: entry.accentColor,
       environment: secrets.environment,
       enabled,
+      // Hydration marks a linked instance local only while its server is enabled.
+      ...(entry.inferenceServerId !== undefined && entry.inference === "local"
+        ? { inferenceServerId: entry.inferenceServerId }
+        : {}),
       config:
         secrets.config.length === 0
           ? typedConfig

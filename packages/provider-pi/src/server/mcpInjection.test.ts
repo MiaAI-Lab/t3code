@@ -6,8 +6,9 @@ import {
   T3_MCP_URL_ENV,
   T3_PI_RUNTIME_MODE_ENV,
   T3_PI_MCP_EXTENSION_PATH_ENV,
+  T3_PI_TOOL_PROFILE_ENV,
 } from "./mcpExtensionSource.ts";
-import { buildPiRpcLaunch, resolvePiLaunchArgs } from "./mcpInjection.ts";
+import { buildPiRpcLaunch, resolvePiLaunchArgs, resolvePiToolProfile } from "./mcpInjection.ts";
 
 const threadId = ThreadId.make("thread-pi-t3-mcp");
 
@@ -34,6 +35,7 @@ describe("pi T3 MCP injection", () => {
       mcpSession,
       extensionPath: "/tmp/cache/pi-t3-mcp-extension.ts",
       runtimeMode: "approval-required",
+      toolProfile: "lean",
     });
     assert.deepEqual(launch.args, [
       "--mode",
@@ -58,6 +60,7 @@ describe("pi T3 MCP injection", () => {
     assert.equal(launch.env[T3_MCP_URL_ENV], "http://127.0.0.1:43123/mcp");
     assert.equal(launch.env[T3_MCP_BEARER_ENV], "secret-pi-token");
     assert.equal(launch.env[T3_PI_RUNTIME_MODE_ENV], "approval-required");
+    assert.equal(launch.env[T3_PI_TOOL_PROFILE_ENV], "lean");
     assert.equal(launch.env[T3_PI_MCP_EXTENSION_PATH_ENV], "/tmp/cache/pi-t3-mcp-extension.ts");
 
     const permissionOnly = buildPiRpcLaunch({
@@ -66,6 +69,7 @@ describe("pi T3 MCP injection", () => {
         [T3_MCP_URL_ENV]: "http://127.0.0.1:9999/stale",
         [T3_MCP_BEARER_ENV]: "stale-token",
         [T3_PI_MCP_EXTENSION_PATH_ENV]: "/stale/extension.ts",
+        [T3_PI_TOOL_PROFILE_ENV]: "lean",
       },
       mcpSession: undefined,
       extensionPath: "/tmp/cache/pi-t3-mcp-extension.ts",
@@ -79,12 +83,27 @@ describe("pi T3 MCP injection", () => {
     ]);
     assert.isUndefined(permissionOnly.env[T3_MCP_URL_ENV]);
     assert.isUndefined(permissionOnly.env[T3_MCP_BEARER_ENV]);
+    assert.isUndefined(permissionOnly.env[T3_PI_TOOL_PROFILE_ENV]);
     assert.equal(permissionOnly.env[T3_PI_RUNTIME_MODE_ENV], "auto-accept-edits");
     assert.equal(
       permissionOnly.env[T3_PI_MCP_EXTENSION_PATH_ENV],
       "/tmp/cache/pi-t3-mcp-extension.ts",
     );
   });
+
+  it.each([
+    ["full", false, "full"],
+    ["full", true, "full"],
+    ["lean", false, "lean"],
+    ["lean", true, "lean"],
+    ["auto", false, "full"],
+    ["auto", true, "full"],
+  ] as const)(
+    "the %s tool profile with an inference server link %s resolves to %s",
+    (setting, linked, expected) => {
+      assert.equal(resolvePiToolProfile(setting, linked), expected);
+    },
+  );
 
   it("forces tools and user extensions off for unattended text generation", () => {
     const launch = buildPiRpcLaunch({

@@ -97,6 +97,45 @@ export function inferenceServerOutage(input: {
   };
 }
 
+export interface InferenceModelNotServed {
+  readonly id: InferenceServerId;
+  readonly name: string;
+  readonly model: string;
+  /** What the server serves now, to switch to. */
+  readonly served: ReadonlyArray<string>;
+}
+
+/**
+ * A model a linked agent was set to run that its server, checked and ready, no longer lists. A
+ * server being checked or down says nothing about its models, so that is not reported here.
+ * Gateway entries are `t3-<server>/<model>`; a linked Codex lists the model ids themselves.
+ */
+export function inferenceModelNotServed(input: {
+  readonly serverId: string | undefined;
+  readonly driver: string | undefined;
+  readonly modelSlug: string;
+  readonly servers: InferenceServers;
+  readonly snapshots: ReadonlyArray<InferenceServerSnapshot>;
+}): InferenceModelNotServed | null {
+  if (input.serverId === undefined) return null;
+  const config = input.servers[input.serverId as InferenceServerId];
+  const snapshot = input.snapshots.find((candidate) => candidate.id === input.serverId);
+  if (!config?.enabled || snapshot?.status !== "ready" || snapshot.models.length === 0) return null;
+  const prefix = `t3-${input.serverId}/`;
+  const model = input.modelSlug.startsWith(prefix)
+    ? input.modelSlug.slice(prefix.length)
+    : input.driver === "codex"
+      ? input.modelSlug
+      : null;
+  if (model === null || snapshot.models.some((served) => served.id === model)) return null;
+  return {
+    id: input.serverId as InferenceServerId,
+    name: inferenceServerDisplayName(input.serverId, config),
+    model,
+    served: snapshot.models.map((served) => served.id),
+  };
+}
+
 /** URL, engine, T3's concurrency cap and fallback, in the order a server's summary line shows them. */
 export function inferenceServerDetails(
   config: InferenceServerConfig,

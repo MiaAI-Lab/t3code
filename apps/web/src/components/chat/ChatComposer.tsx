@@ -2474,7 +2474,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       getModelDisabledReason={getModelDisabledReason}
     />
   );
-  const inferenceOutageItem = useInferenceOutageBannerItem(environmentId, selectedProviderStatus);
+  const inferenceOutageItem = useInferenceOutageBannerItem(
+    environmentId,
+    selectedProviderStatus,
+    selectedModel,
+    () => setIsComposerModelPickerOpen(true),
+  );
   const baseBannerItems =
     inferenceOutageItem === null ? props.bannerItems : [...props.bannerItems, inferenceOutageItem];
   // An open question owns the space above the composer. Only a machine problem,

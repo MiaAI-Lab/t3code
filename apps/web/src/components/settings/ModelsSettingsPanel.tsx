@@ -1,10 +1,12 @@
 import type { InferenceServerSnapshot, InferenceServerStatus } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
+import { inferenceModelNotServed } from "@t3tools/client-runtime/state/inference-presentation";
 import { INFERENCE_SERVER_STATUS_LABELS } from "@t3tools/client-runtime/state/provider-instance-display";
 import { useNavigate } from "@tanstack/react-router";
-import { CpuIcon } from "lucide-react";
+import { AlertTriangleIcon, CpuIcon } from "lucide-react";
 import { useState } from "react";
 
+import { useEnvironmentSettings } from "../../hooks/useSettings";
 import type { EnvironmentPresentation } from "../../state/environments";
 import { serverEnvironment } from "../../state/server";
 import { Badge } from "../ui/badge";
@@ -51,8 +53,38 @@ function LocalModelsSummary({ environment }: { readonly environment: Environment
   );
   const [setupOpen, setSetupOpen] = useState(false);
   const servers = snapshots.filter((snapshot) => snapshot.enabled);
+  const defaultNotServed = useEnvironmentSettings(environmentId, (settings) => {
+    const selection = settings.defaultModelSelection;
+    if (selection === null) return null;
+    const instance = settings.providerInstances[selection.instanceId];
+    return inferenceModelNotServed({
+      serverId: instance?.inferenceServerId,
+      driver: instance?.driver,
+      modelSlug: selection.model,
+      servers: settings.inferenceServers,
+      snapshots,
+    });
+  });
   return (
     <SettingsSection id="local-models" title={`Your hardware on ${environment.label}`}>
+      {defaultNotServed !== null ? (
+        <SettingsRow
+          title={
+            <span className="flex items-center gap-1.5">
+              <AlertTriangleIcon className="size-3.5 shrink-0 text-warning" aria-hidden />
+              {defaultNotServed.name} no longer serves {defaultNotServed.model}
+            </span>
+          }
+          description={`It is the default for new threads, which start on another model until you pick one. ${defaultNotServed.name} serves ${defaultNotServed.served.join(", ")} now.`}
+          control={
+            canDiscover ? (
+              <Button size="xs" variant="outline" onClick={() => setSetupOpen(true)}>
+                Choose a model
+              </Button>
+            ) : null
+          }
+        />
+      ) : null}
       {servers.length === 0 ? (
         <SettingsRow
           title="No model servers yet"

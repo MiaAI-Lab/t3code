@@ -15,6 +15,7 @@ import {
   fallbackTextGenerationModelSelection,
   isImplicitTextGenerationSelection,
   localTextGenerationModelSelection,
+  withLowReasoningOption,
 } from "@t3tools/shared/serverSettings";
 import * as ServerSettings from "../serverSettings.ts";
 import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
@@ -129,12 +130,15 @@ export const make = Effect.gen(function* () {
     });
 
     let selection = requested;
+    let substituted = false;
     if (isImplicitTextGenerationSelection(settings, selection)) {
       const local = localTextGenerationModelSelection(snapshots, (provider) =>
         canRun(provider, ""),
       );
-      if (local !== null) selection = local;
-      else if (localPolicy) return yield* noLocalModel;
+      if (local !== null) {
+        selection = local;
+        substituted = true;
+      } else if (localPolicy) return yield* noLocalModel;
     }
 
     const selected = snapshots.find((provider) => provider.instanceId === selection.instanceId);
@@ -170,8 +174,15 @@ export const make = Effect.gen(function* () {
                 inferenceServers: settings.inferenceServers,
               },
             ));
-      if (fallback !== null) selection = fallback;
-      else if (localPolicy || operation === "generateReviewGuide") return yield* noLocalModel;
+      if (fallback !== null) {
+        selection = fallback;
+        substituted = true;
+      } else if (localPolicy || operation === "generateReviewGuide") return yield* noLocalModel;
+    }
+    // Only a selection T3 chose; one the user picked keeps the options they gave it.
+    if (substituted) {
+      const provider = snapshots.find((candidate) => candidate.instanceId === selection.instanceId);
+      if (provider?.inference === "local") selection = withLowReasoningOption(selection, provider);
     }
     return yield* resolveInstance(registry, operation, selection.instanceId).pipe(
       Effect.flatMap((service) => invoke(service, selection)),

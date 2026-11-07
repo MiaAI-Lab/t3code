@@ -29,6 +29,10 @@ default and the core of the app.
   `t3-<server>` provider with every model the server reports, sized from what it serves. No
   `models.json` or `opencode.json` editing.
 
+![Settings → Inference: two servers, one ready with its prompt cache and load, one unreachable and falling back](pics/inference-servers.png)
+
+![Settings → Providers: linking Pi to a registered inference server](pics/provider-inference-link.png)
+
 ### The inference gateway
 
 Linked providers send their requests through T3 Code, which:
@@ -63,8 +67,11 @@ Linked providers send their requests through T3 Code, which:
 
 ### Appearance
 
-- **Dark** is dark gray. The original true-black dark is kept as **OLED**. Pick either in
-  **Settings → Appearance** or the command palette.
+- **Dark** is two-tone: gray sidebar and panels over a near-black main area. The original
+  true-black dark is kept as **OLED**. Pick either in **Settings → Appearance** or the command
+  palette.
+
+![Settings → Appearance: System, Light, Dark and OLED](pics/appearance-dark-oled.png)
 
 ## Build it
 

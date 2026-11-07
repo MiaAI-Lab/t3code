@@ -124,7 +124,7 @@ describe("local-first text generation", () => {
     ...extra,
   });
 
-  it("falls back only to instances the user marked local unless told otherwise", () => {
+  it("falls back only to local instances unless told otherwise", () => {
     const enabled = () => true;
     expect(
       fallbackTextGenerationModelSelection(providerInstances, enabled, {
@@ -142,8 +142,8 @@ describe("local-first text generation", () => {
     expect(
       fallbackTextGenerationModelSelection({}, (instanceId) => instanceId === "codex", {
         policy: "local",
-      })?.instanceId,
-    ).toBe("codex");
+      }),
+    ).toBeNull();
     expect(
       fallbackTextGenerationModelSelection(providerInstances, enabled, {
         includeConfiguredInstances: true,
@@ -169,8 +169,7 @@ describe("local-first text generation", () => {
         inferenceServers: { [rtx]: { baseUrl: "http://rtx:8888/v1", apiKey: "", enabled } },
       })?.instanceId;
     expect(pick(true)).toBe(linkedPi);
-    // Nothing counts as local, so the cross-provider order applies again.
-    expect(pick(false)).toBe("pi");
+    expect(pick(false)).toBeUndefined();
   });
 
   it("picks a ready local instance's concrete default model, never an alias", () => {

@@ -16,7 +16,6 @@ import {
   resolveServerBackgroundActivitySettings,
 } from "@t3tools/shared/backgroundActivitySettings";
 import * as Duration from "effect/Duration";
-import * as Equal from "effect/Equal";
 
 export function isProjectGroupingEnabled(mode: SidebarProjectGroupingMode): boolean {
   return mode !== "separate";
@@ -47,29 +46,6 @@ export function rememberEnabledProjectGroupingMode(mode: SidebarProjectGroupingM
   try {
     localStorage.setItem(LAST_ENABLED_PROJECT_GROUPING_MODE_KEY, mode);
   } catch {}
-}
-
-export function hasChangedBackgroundActivitySettings(
-  settings: Pick<
-    UnifiedSettings,
-    | "backgroundActivity"
-    | "backgroundActivityProfile"
-    | "automaticGitFetchInterval"
-    | "providerHealthRefreshInterval"
-  >,
-): boolean {
-  return (
-    !Equal.equals(settings.backgroundActivity, DEFAULT_UNIFIED_SETTINGS.backgroundActivity) ||
-    settings.backgroundActivityProfile !== DEFAULT_UNIFIED_SETTINGS.backgroundActivityProfile ||
-    !Equal.equals(
-      settings.automaticGitFetchInterval,
-      DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
-    ) ||
-    !Equal.equals(
-      settings.providerHealthRefreshInterval,
-      DEFAULT_UNIFIED_SETTINGS.providerHealthRefreshInterval,
-    )
-  );
 }
 
 type TypographySettings = Pick<

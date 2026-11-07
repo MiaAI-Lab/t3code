@@ -213,8 +213,9 @@ goes when its model cannot run:
 - **Any provider**: local instances first, then any signed-in provider.
 - **Don't fall back**: report the error.
 
-The fallback never replaces a model you selected that is working. Until you mark
-an instance as local, **Local models only** behaves like **Any provider**.
+The fallback never replaces a model you selected that is working. With **Local
+models only** and no local model set up yet, background writing pauses: threads keep
+their first message as the title, and you write commit and pull request text yourself.
 
 Pull request review guides need an agent that can investigate the checkout, which
 means Codex or Claude. To keep them local, point a Claude instance at your server

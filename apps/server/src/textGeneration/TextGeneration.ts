@@ -3,7 +3,6 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type { ModelSelection, ProviderInstanceId, ServerProvider } from "@t3tools/contracts";
 import {
-  isLocalProviderInstance,
   isProviderAvailable,
   isProviderTextGenerationCapable,
   resolveProjectProviderInstanceEnabled,
@@ -116,17 +115,14 @@ export const make = Effect.gen(function* () {
       isProviderTextGenerationCapable(provider) &&
       (operation !== "generateReviewGuide" || INVESTIGATING_DRIVERS.has(provider.driver)) &&
       !exhaustedUsageWindow(provider, now, model);
-    const localPolicy =
-      settings.textGenerationFallback !== "any" &&
-      Object.values(settings.providerInstances).some((instance) =>
-        isLocalProviderInstance(instance, settings.inferenceServers),
-      );
+    // "Local models only" holds even before any instance is marked local.
+    const localPolicy = settings.textGenerationFallback !== "any";
     const noLocalModel = new TextGenerationError({
       operation,
       detail:
         operation === "generateReviewGuide"
-          ? "Review guides need a Codex or Claude instance, and no local one is ready. Mark one as running local models, or allow any fallback in Settings."
-          : "No local model is ready for background writing. Start your local provider, or allow any fallback in Settings.",
+          ? "Review guides need a Codex or Claude instance, and no local one is ready. Link one to a model server, or allow any provider in Settings, Models."
+          : "No local model is ready for background writing. Set up a local model, or allow any provider in Settings, Models.",
     });
 
     let selection = requested;

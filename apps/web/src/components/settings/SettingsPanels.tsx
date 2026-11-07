@@ -85,7 +85,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   getChangedBrowserSettingLabels,
   getChangedTypographySettingLabels,
-  hasChangedBackgroundActivitySettings,
   isProjectGroupingEnabled,
   projectGroupingModeFromToggle,
   readLastEnabledProjectGroupingMode,
@@ -435,12 +434,7 @@ export function useSettingsRestore(onRestored?: () => void) {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
 
-  const isTextGenerationModelDirty = !Equal.equals(
-    settings.textGenerationModelSelection ?? null,
-    DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
-  );
-  const isBackgroundActivityDirty = hasChangedBackgroundActivitySettings(settings);
-
+  // Server settings belong to their environments and reset from their own rows.
   const changedSettingLabels = [
     ...(theme !== "system" ? ["Theme"] : []),
     ...(!followSystem ? ["Follow system"] : []),
@@ -484,25 +478,6 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.sidebarWorkingShelfEnabled !== DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled
       ? ["Working section"]
       : []),
-    ...(settings.sidebarAutoSettleAfterDays !== DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays
-      ? ["Auto-settle inactive threads"]
-      : []),
-    ...(settings.sidebarAutoSettleKeepPullRequests !==
-    DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleKeepPullRequests
-      ? ["Keep threads with a PR"]
-      : []),
-    ...(settings.sidebarAutoSettleOnMerge !== DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge
-      ? ["Auto-settle merged threads"]
-      : []),
-    ...(settings.autoResumeLimitedThreads !== DEFAULT_UNIFIED_SETTINGS.autoResumeLimitedThreads
-      ? ["Resume after usage limits"]
-      : []),
-    ...(settings.snoozeLimitedThreads !== DEFAULT_UNIFIED_SETTINGS.snoozeLimitedThreads
-      ? ["Snooze until limits reset"]
-      : []),
-    ...(!Equal.equals(settings.snoozePresets, DEFAULT_UNIFIED_SETTINGS.snoozePresets)
-      ? ["Snooze options"]
-      : []),
     ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
     ...(settings.persistComposerContextStrip !==
     DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip
@@ -532,30 +507,6 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.contextWindowMeterEnabled !== DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled
       ? ["Context window indicator"]
       : []),
-    ...(settings.responseStreamingMode !== DEFAULT_UNIFIED_SETTINGS.responseStreamingMode
-      ? ["Response streaming"]
-      : []),
-    ...(settings.enableProviderUpdateChecks !== DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks
-      ? ["Provider update checks"]
-      : []),
-    ...(settings.continueThreadsAfterServerUpdate !==
-    DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate
-      ? ["Continue threads after restarts"]
-      : []),
-    ...(isBackgroundActivityDirty ? ["Background activity"] : []),
-    ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
-      ? ["New thread mode"]
-      : []),
-    ...(settings.newWorktreesStartFromOrigin !==
-    DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin
-      ? ["New worktrees start from remote"]
-      : []),
-    ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
-      ? ["Add project base directory"]
-      : []),
-    ...(settings.ghqCloneLayout !== DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout
-      ? ["Clone into host folders"]
-      : []),
     ...(settings.confirmThreadUnpin !== DEFAULT_UNIFIED_SETTINGS.confirmThreadUnpin
       ? ["Unpin confirmation"]
       : []),
@@ -566,14 +517,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       ? ["Delete confirmation"]
       : []),
     ...(settings.confirmQuit !== DEFAULT_UNIFIED_SETTINGS.confirmQuit ? ["Quit shortcut"] : []),
-    ...(isTextGenerationModelDirty ? ["Text generation model"] : []),
-    ...(settings.threadTitleInstructions !== DEFAULT_UNIFIED_SETTINGS.threadTitleInstructions
-      ? ["Thread title instructions"]
-      : []),
     ...getChangedBrowserSettingLabels(settings),
-    ...(settings.enableAgentBrowserAccess !== DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess
-      ? ["Agent browser access"]
-      : []),
   ];
 
   const restoreDefaults = async () => {
@@ -653,30 +597,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,
       sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
-      sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
-      sidebarAutoSettleKeepPullRequests: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleKeepPullRequests,
-      sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
-      autoResumeLimitedThreads: DEFAULT_UNIFIED_SETTINGS.autoResumeLimitedThreads,
-      snoozeLimitedThreads: DEFAULT_UNIFIED_SETTINGS.snoozeLimitedThreads,
-      snoozePresets: DEFAULT_UNIFIED_SETTINGS.snoozePresets,
-      responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
-      enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
-      continueThreadsAfterServerUpdate: DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate,
-      backgroundActivity: DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
-      backgroundActivityProfile: DEFAULT_UNIFIED_SETTINGS.backgroundActivityProfile,
-      automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
-      providerHealthRefreshInterval: DEFAULT_UNIFIED_SETTINGS.providerHealthRefreshInterval,
-      defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
-      newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
-      addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
-      ghqCloneLayout: DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout,
       confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
       confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
       confirmThreadUnpin: DEFAULT_UNIFIED_SETTINGS.confirmThreadUnpin,
       confirmQuit: DEFAULT_UNIFIED_SETTINGS.confirmQuit,
-      textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
-      textGenerationModelSelectionExplicit: false,
-      threadTitleInstructions: DEFAULT_UNIFIED_SETTINGS.threadTitleInstructions,
       fontFamilySans: DEFAULT_UNIFIED_SETTINGS.fontFamilySans,
       fontFamilyComposer: DEFAULT_UNIFIED_SETTINGS.fontFamilyComposer,
       fontFamilyCode: DEFAULT_UNIFIED_SETTINGS.fontFamilyCode,
@@ -696,7 +620,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       browserCustomSearchUrl: DEFAULT_UNIFIED_SETTINGS.browserCustomSearchUrl,
       browserAutoShowFloatingPreview: DEFAULT_UNIFIED_SETTINGS.browserAutoShowFloatingPreview,
       pullRequestLinksOpenInApp: DEFAULT_UNIFIED_SETTINGS.pullRequestLinksOpenInApp,
-      enableAgentBrowserAccess: DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess,
     });
     onRestored?.();
   };
@@ -1874,7 +1797,7 @@ export function ThreadsSettingsPanel() {
           serverScoped
           settingKeys={["textGenerationFallback"]}
           {...searchableSetting("text-generation-fallback")}
-          description="Where background writing goes when its model cannot run. Local only applies once an instance is marked as running local models."
+          description="Where background writing goes when its model cannot run. Local models only never sends it to a cloud provider you did not choose."
           resetAction={
             settings.textGenerationFallback !== DEFAULT_UNIFIED_SETTINGS.textGenerationFallback ? (
               <SettingResetButton

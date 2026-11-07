@@ -97,12 +97,8 @@ export function fallbackTextGenerationModelSelection(
       : []),
   ];
   const localCandidates = allCandidates.filter(([instanceId]) => isLocal(instanceId));
-  // Users who never marked an instance local keep the cross-provider fallback they had.
-  const anyMarkedLocal = Object.values(providerInstances).some((instance) =>
-    isLocalProviderInstance(instance, options?.inferenceServers),
-  );
   const candidates =
-    policy === "local" && anyMarkedLocal
+    policy === "local"
       ? localCandidates
       : [...localCandidates, ...allCandidates.filter(([instanceId]) => !isLocal(instanceId))];
   const match = candidates.find(([instanceId, driver]) => isEnabled(instanceId, driver));

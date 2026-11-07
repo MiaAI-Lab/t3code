@@ -175,7 +175,7 @@ describe("TextGeneration local-first routing", () => {
   });
 
   it.effect("refuses to send background writing to the cloud when no local model is ready", () => {
-    const fixture = setup({
+    const unavailableLocal = setup({
       providers: [
         snapshot(codex, "codex", ["gpt-6-luna"]),
         snapshot(piLocal, "pi", ["tensorfold/GLM-5.3-Flash"], {
@@ -186,10 +186,32 @@ describe("TextGeneration local-first routing", () => {
       ],
       settings: markedLocal,
     });
+    // "Local models only" also holds before any instance is marked local.
+    const nothingLocal = setup({ providers: [snapshot(codex, "codex", ["gpt-6-luna"])] });
     return Effect.gen(function* () {
-      const error = yield* Effect.flip(fixture.commit(builtIn));
-      expect(error.message).toContain("No local model is ready");
-      expect(fixture.calls).toEqual([]);
+      for (const fixture of [unavailableLocal, nothingLocal]) {
+        const error = yield* Effect.flip(fixture.commit(builtIn));
+        expect(error.message).toContain("No local model is ready");
+        expect(fixture.calls).toEqual([]);
+      }
+    });
+  });
+
+  it.effect("sends background writing to the cloud only when the user chose it", () => {
+    const luna = { instanceId: codex, model: "gpt-6-luna" };
+    const chosen = setup({
+      providers: [snapshot(codex, "codex", ["gpt-6-luna"])],
+      settings: { textGenerationModelSelection: luna, textGenerationModelSelectionExplicit: true },
+    });
+    const anyProvider = setup({
+      providers: [snapshot(codex, "codex", ["gpt-6-luna"])],
+      settings: { textGenerationFallback: "any" },
+    });
+    return Effect.gen(function* () {
+      yield* chosen.commit(luna);
+      expect(chosen.calls).toEqual([luna]);
+      yield* anyProvider.commit(builtIn);
+      expect(anyProvider.calls).toHaveLength(1);
     });
   });
 

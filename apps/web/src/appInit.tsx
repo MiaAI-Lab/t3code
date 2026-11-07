@@ -75,6 +75,11 @@ function startClientAppearance(): void {
     if (previous?.diffColorScheme !== settings.diffColorScheme) {
       root.dataset.diffColorScheme = settings.diffColorScheme;
     }
+    if (previous?.darkStyle !== settings.darkStyle) {
+      root.dataset.darkStyle = settings.darkStyle;
+      // The window and theme-color meta copy the painted background, so repaint them too.
+      if (previous !== null) syncBrowserChromeTheme();
+    }
     if (previous?.chatWidth !== settings.chatWidth) {
       root.dataset.chatWidth = settings.chatWidth;
     }

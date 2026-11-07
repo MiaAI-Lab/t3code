@@ -6,9 +6,10 @@ import {
   useCommandPaletteStore,
 } from "../commandPaletteStore";
 import { overlayModeForCommand } from "../components/CommandPalette.logic";
-import { APPEARANCE_OPTIONS, notifyThemeSaveFailure } from "../components/CommandPaletteThemeItems";
+import { appearanceLabel, notifyThemeSaveFailure } from "../components/CommandPaletteThemeItems";
 import { toggleThemeEditorForTheme } from "../components/settings/themeEditorStore";
 import { toastManager } from "../components/ui/toast";
+import { getClientSettings } from "../hooks/useSettings";
 import { getThemeSnapshot, setAppearanceMode } from "../hooks/useTheme";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { type CommandHandler, type CommandScopeOptions, registerCommands } from "./dispatcher";
@@ -73,7 +74,7 @@ export function installCommandPaletteCommands(
         }
         toastManager.add({
           id: "appearance-cycle",
-          title: `Appearance: ${APPEARANCE_OPTIONS.find((option) => option.mode === nextMode)?.label}`,
+          title: `Appearance: ${appearanceLabel(nextMode, getClientSettings().darkStyle)}`,
           timeout: 1500,
         });
       },

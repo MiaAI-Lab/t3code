@@ -1277,6 +1277,28 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
+/* The standard dark mode is dark gray unless the device picks OLED, which keeps the true-black
+   values above. `:where` keeps these at the specificity of the blocks they follow, so palette
+   themes still win. */
+:root:where([data-dark-style="gray"]) {
+  @variant dark {
+    --background: #1d1d20;
+    --surface-raised: #252528;
+    --card: #252528;
+    --popover: #29292d;
+    --message-surface: #2e2e33;
+  }
+}
+
+:where([data-dark-style="gray"]) [data-app-sidebar] {
+  @variant dark {
+    --background: #18181b;
+    --card: #18181b;
+    --muted: #202023;
+    --accent: #2a2b2f;
+  }
+}
+
 /* Modified files get a muted blue so added and deleted files lead. Built from the info token,
    which themes do not override, so it stays blue in every theme. */
 :root {

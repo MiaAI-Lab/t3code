@@ -1,8 +1,10 @@
 import { BUILT_IN_THEMES } from "@t3tools/shared/themePalettes";
-import { MonitorIcon, MoonIcon, PaletteIcon, SunIcon } from "lucide-react";
+import type { DarkStyle } from "@t3tools/contracts/settings";
+import { MonitorIcon, MoonIcon, MoonStarIcon, PaletteIcon, SunIcon } from "lucide-react";
 
 import { useCustomThemes } from "../hooks/useCustomThemes";
 import { useEnvironmentThemeDefinitions } from "../hooks/useEnvironmentTheme";
+import { updateClientSettings, useClientSettings } from "../hooks/useSettings";
 import { useTheme } from "../hooks/useTheme";
 import { getThemeDefinition } from "../themePalette";
 import {
@@ -20,10 +22,38 @@ import {
 import { stackedThreadToast, toastManager } from "./ui/toast";
 
 export const APPEARANCE_OPTIONS = [
-  { mode: "system", label: "System", icon: MonitorIcon },
-  { mode: "light", label: "Light", icon: SunIcon },
-  { mode: "dark", label: "Dark", icon: MoonIcon },
+  { key: "system", mode: "system", darkStyle: null, label: "System", icon: MonitorIcon },
+  { key: "light", mode: "light", darkStyle: null, label: "Light", icon: SunIcon },
+  { key: "dark", mode: "dark", darkStyle: "gray", label: "Dark", icon: MoonIcon },
+  { key: "oled", mode: "dark", darkStyle: "oled", label: "OLED", icon: MoonStarIcon },
 ] as const;
+export type AppearanceOption = (typeof APPEARANCE_OPTIONS)[number];
+
+export function isAppearanceOptionActive(
+  option: AppearanceOption,
+  appearanceMode: AppearanceOption["mode"],
+  darkStyle: DarkStyle,
+): boolean {
+  return (
+    option.mode === appearanceMode && (option.darkStyle === null || option.darkStyle === darkStyle)
+  );
+}
+
+export function appearanceLabel(mode: AppearanceOption["mode"], darkStyle: DarkStyle): string {
+  const option = APPEARANCE_OPTIONS.find((candidate) =>
+    isAppearanceOptionActive(candidate, mode, darkStyle),
+  );
+  return option?.label ?? mode;
+}
+
+/** Picks the mode, and for Dark or OLED the standard theme's dark style on this device. */
+export function applyAppearanceOption(
+  option: AppearanceOption,
+  setAppearanceMode: (mode: AppearanceOption["mode"]) => boolean,
+): boolean {
+  if (option.darkStyle !== null) void updateClientSettings({ darkStyle: option.darkStyle });
+  return setAppearanceMode(option.mode);
+}
 
 export function notifyThemeSaveFailure(): void {
   toastManager.add(
@@ -64,6 +94,7 @@ export function useCommandPaletteThemeItems() {
     setThemeHalf,
   } = useTheme();
   const themeCards = useThemeCards();
+  const darkStyle = useClientSettings((settings) => settings.darkStyle);
 
   const changeThemeItem: CommandPaletteSubmenuItem = {
     kind: "submenu",
@@ -116,7 +147,7 @@ export function useCommandPaletteThemeItems() {
   const changeAppearanceItem: CommandPaletteSubmenuItem = {
     kind: "submenu",
     value: "action:change-appearance",
-    searchTerms: ["change appearance", "light", "dark", "system", "mode", "toggle"],
+    searchTerms: ["change appearance", "light", "dark", "oled", "system", "mode", "toggle"],
     title: "Change appearance",
     icon: <MonitorIcon className={ITEM_ICON_CLASS} />,
     addonIcon: <MonitorIcon className={ADDON_ICON_CLASS} />,
@@ -125,18 +156,17 @@ export function useCommandPaletteThemeItems() {
       {
         value: "appearance",
         label: "Change appearance",
-        items: APPEARANCE_OPTIONS.map(({ mode, label, icon: Icon }) => ({
+        items: APPEARANCE_OPTIONS.map((option) => ({
           kind: "action",
-          value: `appearance:${mode}`,
-          title: label,
-          searchTerms: [label, "appearance", "mode"],
-          icon: <Icon className={ITEM_ICON_CLASS} />,
-          titleTrailingContent:
-            appearanceMode === mode ? (
-              <span className="text-xs text-muted-foreground/70">Current</span>
-            ) : undefined,
+          value: `appearance:${option.key}`,
+          title: option.label,
+          searchTerms: [option.label, "appearance", "mode"],
+          icon: <option.icon className={ITEM_ICON_CLASS} />,
+          titleTrailingContent: isAppearanceOptionActive(option, appearanceMode, darkStyle) ? (
+            <span className="text-xs text-muted-foreground/70">Current</span>
+          ) : undefined,
           run: async () => {
-            if (!setAppearanceMode(mode)) notifyThemeSaveFailure();
+            if (!applyAppearanceOption(option, setAppearanceMode)) notifyThemeSaveFailure();
           },
         })),
       },

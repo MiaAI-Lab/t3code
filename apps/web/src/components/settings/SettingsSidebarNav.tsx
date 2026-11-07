@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   ArchiveIcon,
+  BoxesIcon,
   FlaskConicalIcon,
   BotIcon,
   createLucideIcon,
@@ -29,6 +30,7 @@ import {
   SearchIcon,
   ServerIcon,
   Settings2Icon,
+  SlidersHorizontalIcon,
   ShieldCheckIcon,
   SmartphoneIcon,
   WrenchIcon,
@@ -52,8 +54,10 @@ import { scrollToSettingsTarget } from "./settingsLayout";
 import {
   searchSettings,
   revealSettingsSearchTarget,
-  SETTINGS_NAV_GROUPS,
+  SETTINGS_DESTINATIONS,
   SETTINGS_SECTION_LABELS,
+  settingsDestinationFor,
+  type SettingsDestination,
   type SettingsPath,
   type SettingsSearchItem,
 } from "./settingsSearch";
@@ -88,6 +92,7 @@ const T3ConnectSidebarAvatar = lazy(() =>
 const SETTINGS_SECTION_ICONS: Readonly<
   Record<SettingsPath, ComponentType<{ className?: string }>>
 > = {
+  "/settings/models": BoxesIcon,
   "/settings/general": Settings2Icon,
   "/settings/diagnostics": WrenchIcon,
   "/settings/voice": MicIcon,
@@ -114,11 +119,20 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/archived": ArchiveIcon,
 };
 
-// Detail pages without a nav entry highlight the page that links to them.
-const SETTINGS_DETAIL_PAGE_PARENTS: Readonly<Record<string, SettingsPath>> = {
-  "/settings/diagnostics": "/settings/maintenance",
-  "/settings/open-source-licenses": "/settings/about",
+const DESTINATION_ICONS: Readonly<Record<string, ComponentType<{ className?: string }>>> = {
+  "Models & agents": BoxesIcon,
+  General: Settings2Icon,
+  Appearance: PaletteIcon,
+  "Chat & input": MessageSquareTextIcon,
+  "Projects & Git": GitBranchIcon,
+  "Tools & automation": GlobeIcon,
+  "Connections & sharing": ServerIcon,
+  Advanced: SlidersHorizontalIcon,
+  About: InfoIcon,
 };
+
+// Advanced and About sit apart at the bottom, as rarely visited destinations.
+const BOTTOM_DESTINATIONS: ReadonlySet<string> = new Set(["Advanced", "About"]);
 
 // Attached only to the highlighted result, so it runs whenever the highlight lands on a row.
 function scrollResultIntoView(row: HTMLElement | null) {
@@ -136,12 +150,10 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const currentHash = useLocation({ select: (location) => location.hash });
   const currentSearch = useLocation({ select: (location) => location.search });
   const scopeSearch = validateSettingsScopeSearch(currentSearch);
-  const activePath = SETTINGS_DETAIL_PAGE_PARENTS[pathname] ?? pathname;
-  const navPaths = SETTINGS_NAV_GROUPS.flatMap((group) => group.paths);
+  const activeDestination = settingsDestinationFor(pathname);
+  const navPaths = SETTINGS_DESTINATIONS.flatMap((destination) => destination.paths.slice(0, 1));
   const sectionNavigation = useSettingsSectionNavigation(
-    navPaths.find((to) => activePath === to || activePath.startsWith(`${to}/`)) ??
-      navPaths[0] ??
-      "",
+    activeDestination?.paths[0] ?? navPaths[0] ?? "",
   );
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
@@ -386,31 +398,30 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                   aria-label="Settings sections"
                   className="flex flex-col gap-4"
                 >
-                  {SETTINGS_NAV_GROUPS.map((group, index) => (
+                  {(
+                    [
+                      [
+                        "main",
+                        SETTINGS_DESTINATIONS.filter((d) => !BOTTOM_DESTINATIONS.has(d.label)),
+                      ],
+                      [
+                        "bottom",
+                        SETTINGS_DESTINATIONS.filter((d) => BOTTOM_DESTINATIONS.has(d.label)),
+                      ],
+                    ] as const
+                  ).map(([key, group]) => (
                     <div
-                      key={group.heading ?? index}
+                      key={key}
                       role="group"
-                      aria-label={group.heading ?? undefined}
                       className="flex flex-col gap-1 max-md:border-t max-md:border-sidebar-border max-md:pt-4 max-md:first:border-t-0 max-md:first:pt-0"
                     >
-                      {group.heading ? (
-                        // The group carries this label; a heading is not a valid tree child.
-                        <h3
-                          aria-hidden="true"
-                          className={cn(
-                            "px-2 text-xs font-medium text-sidebar-muted-foreground/80",
-                            !compactSearchOpen && "max-md:hidden",
-                          )}
-                        >
-                          {group.heading}
-                        </h3>
-                      ) : null}
                       <SidebarMenu role="presentation">
-                        {group.paths.map((to) => {
-                          const Icon = SETTINGS_SECTION_ICONS[to];
-                          const isActive = activePath === to || activePath.startsWith(`${to}/`);
+                        {group.map((destination: SettingsDestination) => {
+                          const to = destination.paths[0]!;
+                          const Icon = DESTINATION_ICONS[destination.label] ?? Settings2Icon;
+                          const isActive = activeDestination === destination;
                           return (
-                            <SidebarMenuItem key={to} role="presentation">
+                            <SidebarMenuItem key={destination.label} role="presentation">
                               <SidebarMenuButton
                                 data-settings-section={to}
                                 role="treeitem"
@@ -424,7 +435,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                                 <span
                                   className={cn("truncate", !compactSearchOpen && "max-md:sr-only")}
                                 >
-                                  {SETTINGS_SECTION_LABELS[to]}
+                                  {destination.label}
                                 </span>
                               </SidebarMenuButton>
                             </SidebarMenuItem>

@@ -172,7 +172,7 @@ before sharing.
 
 ## Providers
 
-Open **Settings → Providers** in the web or desktop app, select the environment,
+Open **Settings → Models & agents → Agents** in the web or desktop app, select the environment,
 and enable the provider you want. Installation, login, and configuration belong
 to that environment's machine, even when you connect from a phone or another
 computer.
@@ -188,7 +188,7 @@ computer.
 | OpenCode    | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                                                                                  |
 | Antigravity | Install and sign in with Google from T3 Code's provider settings.                                                                                         |
 | Pi          | Install [Pi](./providers-pi.md#set-up-pi) with Node.js 22.19 or newer, then run `pi` and `/login`.                                                        |
-| Muse Code   | Install [Muse Code](https://dev.meta.ai/docs/muse-code) on the server, run `muse login`, then enable it in Settings → Providers.                          |
+| Muse Code   | Install [Muse Code](https://dev.meta.ai/docs/muse-code) on the server, run `muse login`, then enable it in Settings → Models & agents → Agents.           |
 | fx          | Install [fx](https://fx.sh) with `curl -fsSL https://fx.sh/setup.sh \| bash`, then run `fx login`.                                                        |
 
 Provider CLIs must be on the server's `PATH`. If T3 Code cannot find one, set its
@@ -198,7 +198,7 @@ Cursor's executable is `cursor-agent`, although its login command is
 managed runtimes without a `PATH` entry.
 
 T3 Code warns when a provider version has known compatibility problems with your
-release. Check **Settings → Providers** on that environment for the recommended
+release. Check **Settings → Models & agents → Agents** on that environment for the recommended
 version or range. When its package manager supports installing a specific version,
 you can install the recommendation there. Otherwise use the provider's installer
 on the environment's machine. An unlisted version is unverified.

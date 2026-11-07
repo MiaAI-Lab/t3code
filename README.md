@@ -13,14 +13,14 @@ default and the core of the app.
 - **Runs local models**: mark a provider instance as local. Local instances come first in the
   model picker and provider lists, and new threads default to them.
 - **Background writing stays local**: thread titles, commit messages, PR text, branch names and
-  voice cleanup use a local model. **Settings → Threads → Text generation fallback** defaults to
-  **Local models only**, so your diffs never move to a cloud provider on their own.
+  voice cleanup use a local model. **Text generation fallback** defaults to **Local models only**,
+  so your diffs never move to a cloud provider on their own, even before any local model is set up.
 - **Local is never priced**: local models show **Local** instead of a cloud price and never add to
   the cost total.
 
 ### Inference servers
 
-- **Settings → Inference**: register your model servers (Ollama, LM Studio, llama.cpp, vLLM,
+- **Settings → Models & agents → Model servers**: register your model servers (Ollama, LM Studio, llama.cpp, vLLM,
   SGLang, TensorFold, or anything OpenAI-compatible). Each shows its readiness, models, context
   windows, load, last failure and, on TensorFold, prompt cache health.
 - **Fallback server**: a server can name another to take its requests when it is down. It is not

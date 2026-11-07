@@ -77,7 +77,7 @@ Use `Cmd+Shift+Enter` on macOS or `Ctrl+Shift+Enter` on Windows and Linux to sen
 the oldest queued message as a steer. This leaves the current draft intact and
 requires an active turn that supports steering. If that shortcut sends the opposite
 action for your draft, move focus outside the composer to steer the queued message. Change
-`thread.steerQueuedMessage` in **Settings → Keybindings** to use another shortcut.
+`thread.steerQueuedMessage` in **Settings → Chat & input → Keyboard shortcuts** to use another shortcut.
 
 Press `Option+Up` on macOS or `Alt+Up` on Windows and Linux with the cursor at the
 start of the composer to edit the most recently queued message. Change
@@ -97,7 +97,7 @@ device until you sign back into the same account.
 
 ## Custom models
 
-On web and desktop, use Settings → Providers → **Models** to add an unlisted model with a custom
+On web and desktop, use Settings → Models & agents → Agents → **Models** to add an unlisted model with a custom
 name and options. Only options supported by the provider integration affect turns. Antigravity
 uses its account catalog and does not support custom models.
 
@@ -281,7 +281,7 @@ earlier messages, and the thread marks where it began with **New session**.
 Earlier messages and diffs stay in the thread. Dismiss the notice above the
 composer to keep the current session instead.
 
-On web and desktop, turn on **Settings → Labs → Legacy → Context
+On web and desktop, turn on **Settings → Advanced → Labs → Legacy → Context
 window indicator (legacy)** to see context usage. The meter is off by default
 and appears once the provider reports usage. Open it for usage details and
 **Compact context** when the provider supports compaction.

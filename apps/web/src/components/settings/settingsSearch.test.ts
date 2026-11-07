@@ -14,7 +14,7 @@ import {
   isSettingsSearchScopeAvailable,
   movedSettingsPath,
   searchSettings,
-  SETTINGS_NAV_GROUPS,
+  SETTINGS_DESTINATIONS,
   SETTINGS_SEARCH_ITEMS,
   sourceControlHostSearchItems,
   sourceControlHostSettingsSearchId,
@@ -64,17 +64,21 @@ describe("searchSettings", () => {
     expect(searchSettings("sharing", ITEMS).map((item) => item.id)).toEqual(["network-access"]);
     expect(searchSettings("claude", ITEMS).map((item) => item.id)).toEqual(["providers"]);
     expect(searchSettings("long lines", ITEMS).map((item) => item.id)).toEqual(["word-wrap"]);
+    // A renamed page still answers to its former name.
+    expect(searchSettings("inference servers")[0]?.to).toBe("/settings/inference");
     for (const query of ["fallback", "fallback agent", "fallback model"]) {
       expect(searchSettings(query)[0]).toMatchObject({
         id: "fallback-model",
-        to: "/settings/threads",
+        to: "/settings/models",
         scope: "environment-defaults",
       });
     }
   });
 
   it("hides the Secrets page from nav and search while the secrets feature is disabled", () => {
-    expect(SETTINGS_NAV_GROUPS.flatMap((group) => group.paths)).not.toContain("/settings/secrets");
+    expect(SETTINGS_DESTINATIONS.flatMap((destination) => destination.paths)).not.toContain(
+      "/settings/secrets",
+    );
     expect(searchSettings("1password").map((item) => item.to)).not.toContain("/settings/secrets");
   });
 
@@ -347,8 +351,13 @@ describe("source control host search items", () => {
 describe("movedSettingsPath", () => {
   it("sends old links to the page their row moved to", () => {
     expect(movedSettingsPath("/settings/general", "text-generation-model")).toBe(
-      "/settings/threads",
+      "/settings/models",
     );
+    expect(movedSettingsPath("/settings/threads", "default-model")).toBe("/settings/models");
+    expect(movedSettingsPath("/settings/threads", "add-project-starts-in")).toBe(
+      "/settings/source-control",
+    );
+    expect(movedSettingsPath("/settings/threads", "snooze-options")).toBeNull();
     expect(movedSettingsPath("/settings/connections", "authorized-clients")).toBe(
       "/settings/access",
     );

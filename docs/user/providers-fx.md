@@ -11,7 +11,7 @@ T3 Code can run [fx](https://fx.sh). fx uses the login on the machine that runs 
    ```
 
 2. Run `fx login` in a terminal on that machine.
-3. Open **Settings → Providers**, enable fx, and refresh the provider.
+3. Open **Settings → Models & agents → Agents**, enable fx, and refresh the provider.
 
 If `fx` is not on the server's `PATH`, set **Binary path** to the executable.
 

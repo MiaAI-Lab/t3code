@@ -52,7 +52,12 @@ function isWorktreeSubmodules(value: string | null): value is WorktreeSubmodules
   return value !== null && (WORKTREE_SUBMODULES_OPTIONS as readonly string[]).includes(value);
 }
 
-export function ProjectDefaultsSettings({ category }: { category: ProjectSettingsCategory }) {
+export function ProjectDefaultsSettings({
+  category,
+}: {
+  /** `models` is the default and fallback model on Settings, Models; `general` the rest. */
+  category: ProjectSettingsCategory | "models";
+}) {
   const { scope, target, targets, connectedEnvironments } = useSettingsScope();
   const settings = useScopedSettings();
   const clientSettings = useClientSettings();
@@ -326,10 +331,27 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
 
   return (
     <SettingsSection
-      id={category === "source-control" ? "source-control-defaults" : "project-defaults"}
-      title={category === "source-control" ? "Repositories" : "New threads"}
+      id={
+        category === "source-control"
+          ? "source-control-defaults"
+          : category === "models"
+            ? "new-thread-model"
+            : "project-defaults"
+      }
+      title={
+        category === "source-control"
+          ? "Repositories"
+          : category === "models"
+            ? "Model for new threads"
+            : "New threads"
+      }
     >
-      {category === "project" ? (
+      {category === "models" ? (
+        <>
+          {modelRow}
+          {fallbackRow}
+        </>
+      ) : category === "project" ? (
         <>
           {modelRow}
           {fallbackRow}
@@ -337,8 +359,6 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
         </>
       ) : category === "general" ? (
         <>
-          {modelRow}
-          {fallbackRow}
           <SettingsRow
             serverScoped
             settingKeys={["defaultRuntimeMode"]}

@@ -2,7 +2,7 @@
 
 The app you use and the server running your agents can be on different machines.
 When a server is behind your web or desktop app, the update button at the bottom
-of the sidebar and **Settings → Environments** offer to update it.
+of the sidebar and **Settings → Connections & sharing → Computers** offer to update it.
 
 ## Update everything at once
 
@@ -26,7 +26,7 @@ Each server checks that it can install the release before it restarts. If the
 release is not available to a server yet, its update fails, the server keeps
 running, and you can retry. The confirmation lists each machine it skips and
 why, such as a machine that is offline or needs a manual update. Use
-**Settings → Environments** for those.
+**Settings → Connections & sharing → Computers** for those.
 
 If a desktop app restarts on its old version, T3 Code tells you the update did
 not apply. It does not install that version again on its own, even when another
@@ -168,7 +168,7 @@ Machines without npm check the public npm registry directly.
 
 ## Update providers
 
-**Settings → Providers** shows provider updates for the selected environment.
+**Settings → Models & agents → Agents** shows provider updates for the selected environment.
 **Update all** updates every outdated provider on every connected environment
 at once. Hover it to see which providers it will update. Providers that only
 offer a manual update command are not included.

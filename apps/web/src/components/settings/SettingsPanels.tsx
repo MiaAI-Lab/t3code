@@ -1,7 +1,12 @@
 import { useAtomValue } from "@effect/atom-react";
 import { NotificationSettings } from "./NotificationSettings";
+import {
+  BoringSidebarMultilineRow,
+  BoringSidebarRow,
+  ToolCallVisibilityRow,
+} from "./GraduatedLabsRows";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
-import { CheckIcon } from "lucide-react";
+import { AlertTriangleIcon, CheckIcon } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import {
@@ -809,7 +814,7 @@ export function GeneralSettingsPanel() {
         />
         <SettingsRow
           {...searchableSetting("working-shelf")}
-          description="Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you. The boring sidebar in Labs has no Working section."
+          description="Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you. Grouping threads by project has no Working section."
           resetAction={
             settings.sidebarWorkingShelfEnabled !==
             DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled ? (
@@ -833,6 +838,8 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+        <BoringSidebarRow />
+        <BoringSidebarMultilineRow />
       </SettingsSection>
 
       <SettingsSection id="confirmations" title="Confirmations">
@@ -1113,6 +1120,7 @@ export function ChatSettingsPanel() {
             }
           />
         </AdvancedSettings>
+        <ToolCallVisibilityRow />
       </SettingsSection>
 
       <SettingsSection id="follow-ups" title="Follow-ups">
@@ -1425,121 +1433,16 @@ function ScopedCompactIdleThreadsRow() {
 export function ThreadsSettingsPanel() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
-  const navigate = useNavigate();
-  const { environment, connectedEnvironments, target, scope } = useSettingsScope();
+  const { connectedEnvironments, scope } = useSettingsScope();
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
-  const environmentId = environment?.environmentId ?? null;
   const hasServerTargets = connectedEnvironments.length > 0;
   const mixedResponseStreamingMode = useScopedSettingsMixed(["responseStreamingMode"]);
-  const providersByEnvironment = useEnvironmentProviders();
-  const serverProviders =
-    (environment?.serverConfig
-      ? providersByEnvironment.get(environment.environmentId)
-      : undefined) ?? EMPTY_SERVER_PROVIDERS;
   const supportsAutoSettlementScope = connectedEnvironments.every(
     (target) => target.serverConfig?.environment.capabilities.threadAutoSettlementScope === true,
   );
 
-  const textGenerationProviders = serverProviders.filter(
-    (provider) => provider.supportsTextGeneration !== false,
-  );
-  const textGenerationModelSelection = resolveAppModelSelectionState(
-    settings,
-    textGenerationProviders,
-  );
-  const textGenInstanceId = textGenerationModelSelection.instanceId;
-  const textGenModel = textGenerationModelSelection.model;
-  const textGenModelOptions = textGenerationModelSelection.options;
-  const textGenerationModelInstanceEntries = providerInstanceEntriesFor(
-    textGenerationProviders,
-    settings,
-    target?.projectId ?? null,
-  );
-  const hasTextGenerationProvider = textGenerationModelInstanceEntries.some(
-    (entry) => entry.enabled && entry.isAvailable,
-  );
-  const textGenInstanceEntry = textGenerationModelInstanceEntries.find(
-    (entry) => entry.instanceId === textGenInstanceId,
-  );
-  const textGenProvider: ProviderDriverKind =
-    textGenInstanceEntry?.driverKind ?? DEFAULT_DRIVER_KIND;
-  const textGenerationModelOptionsByInstance = getCustomModelOptionsByInstance(
-    settings,
-    textGenerationProviders,
-    textGenInstanceId,
-    textGenModel,
-  );
-  const isTextGenerationModelDirty = !Equal.equals(
-    settings.textGenerationModelSelection ?? null,
-    DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
-  );
-  const textGenerationModelDisabledReason = useScopedModelDisabledReason(
-    settings,
-    textGenerationModelInstanceEntries,
-  );
-  const mixedAddProjectBaseDirectory = useScopedSettingsMixed(["addProjectBaseDirectory"]);
-  const mixedTextGenerationModel = useScopedSettingsMixed(["textGenerationModelSelection"]);
-
   return (
     <SettingsPageContainer>
-      <SettingsSection id="new-projects" title="New projects">
-        <SettingsRow
-          serverScoped
-          settingKeys={["addProjectBaseDirectory"]}
-          {...searchableSetting("add-project-starts-in")}
-          description='Leave empty to use "~/" when the Add Project browser opens.'
-          resetAction={
-            settings.addProjectBaseDirectory !==
-            DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory ? (
-              <SettingResetButton
-                label="add project base directory"
-                onClick={() =>
-                  updateSettings({
-                    addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <DraftInput
-              size="sm"
-              className="w-full sm:w-72"
-              value={mixedAddProjectBaseDirectory ? "" : settings.addProjectBaseDirectory}
-              onCommit={(next) => updateSettings({ addProjectBaseDirectory: next })}
-              normalizeDraft={resolvePastedPath}
-              placeholder={mixedAddProjectBaseDirectory ? "Mixed" : "~/"}
-              spellCheck={false}
-              aria-label="Add project base directory"
-            />
-          }
-        />
-        <SettingsRow
-          serverScoped
-          settingKeys={["ghqCloneLayout"]}
-          {...searchableSetting("ghq-clone-layout")}
-          description="Clones go to github.com/owner/repo under the folder above, like ghq."
-          resetAction={
-            settings.ghqCloneLayout !== DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout ? (
-              <SettingResetButton
-                label="clone into host folders"
-                onClick={() =>
-                  updateSettings({ ghqCloneLayout: DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout })
-                }
-              />
-            ) : null
-          }
-          control={
-            <ScopedSwitch
-              settingKeys={["ghqCloneLayout"]}
-              checked={settings.ghqCloneLayout}
-              onCheckedChange={(checked) => updateSettings({ ghqCloneLayout: Boolean(checked) })}
-              aria-label="Clone into host folders"
-            />
-          }
-        />
-      </SettingsSection>
-
       <ProjectDefaultsSettings category="general" />
 
       {!isProjectScope ? (
@@ -1682,129 +1585,23 @@ export function ThreadsSettingsPanel() {
         </SettingsSection>
       ) : null}
 
-      <SettingsSection id="text-generation" title="Text generation">
+      <SettingsSection id="responses" title="Responses">
         <SettingsRow
           serverScoped
-          settingKeys={["textGenerationModelSelection"]}
-          {...searchableSetting("text-generation-model")}
+          settingKeys={["responseStreamingMode"]}
+          {...searchableSetting("response-streaming")}
           description={
-            !settings.textGenerationModelSelectionExplicit &&
-            Object.values(settings.providerInstances).some(
-              (instance) => instance.inference === "local",
-            )
-              ? "Automatic: a ready local model writes thread titles and other generated text until you pick a model here. Source control can override it."
-              : "Used for thread titles and other generated text on connected devices with this provider. Source control can override it."
+            mixedResponseStreamingMode
+              ? "The selected targets use different streaming modes."
+              : RESPONSE_STREAMING_MODE_DESCRIPTIONS[settings.responseStreamingMode]
           }
           resetAction={
-            hasServerTargets && isTextGenerationModelDirty ? (
+            settings.responseStreamingMode !== DEFAULT_UNIFIED_SETTINGS.responseStreamingMode ? (
               <SettingResetButton
-                label="text generation model"
+                label="response streaming"
                 onClick={() =>
                   updateSettings({
-                    textGenerationModelSelection:
-                      DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
-                    textGenerationModelSelectionExplicit: false,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            !hasServerTargets ? (
-              <span className="text-sm text-muted-foreground">
-                Connect an environment to choose its text generation model.
-              </span>
-            ) : !hasTextGenerationProvider ? (
-              <span className="text-sm text-muted-foreground">
-                No text generation providers available.
-              </span>
-            ) : (
-              <div className="flex flex-wrap items-center justify-end gap-1.5">
-                <ProviderModelPicker
-                  environmentId={environmentId}
-                  activeInstanceId={textGenInstanceId}
-                  model={textGenModel}
-                  lockedProvider={null}
-                  instanceEntries={textGenerationModelInstanceEntries}
-                  modelOptionsByInstance={textGenerationModelOptionsByInstance}
-                  triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                  {...(mixedTextGenerationModel ? { triggerLabel: "Mixed" } : {})}
-                  getModelDisabledReason={textGenerationModelDisabledReason}
-                  {...(environmentId
-                    ? {
-                        onOpenProviderSetup: (instanceId: ProviderInstanceId) => {
-                          void navigate({
-                            to: "/settings/providers",
-                            search: { environmentId, instanceId },
-                          });
-                        },
-                      }
-                    : {})}
-                  onInstanceModelChange={(instanceId, model) => {
-                    const reason = textGenerationModelDisabledReason(instanceId, model);
-                    if (reason) {
-                      toastManager.add({
-                        type: "error",
-                        title: "Text generation model not saved",
-                        description: reason,
-                      });
-                      return;
-                    }
-                    updateSettings({
-                      textGenerationModelSelection: resolveAppModelSelectionState(
-                        {
-                          ...settings,
-                          textGenerationModelSelection: createModelSelection(instanceId, model),
-                        },
-                        textGenerationProviders,
-                      ),
-                    });
-                  }}
-                />
-                {textGenInstanceEntry ? (
-                  <TraitsPicker
-                    provider={textGenProvider}
-                    models={textGenInstanceEntry?.models ?? []}
-                    model={textGenModel}
-                    modelOptions={textGenModelOptions}
-                    allowPromptInjectedEffort={false}
-                    planModeEnabled={
-                      settings.planModeEnabled || selectsPlanAgent(textGenModelOptions)
-                    }
-                    triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                    onModelOptionsChange={(nextOptions) => {
-                      updateSettings({
-                        textGenerationModelSelection: resolveAppModelSelectionState(
-                          {
-                            ...settings,
-                            textGenerationModelSelection: createModelSelection(
-                              textGenInstanceId,
-                              textGenModel,
-                              nextOptions,
-                            ),
-                          },
-                          textGenerationProviders,
-                        ),
-                      });
-                    }}
-                  />
-                ) : null}
-              </div>
-            )
-          }
-        />
-        <SettingsRow
-          serverScoped
-          settingKeys={["textGenerationFallback"]}
-          {...searchableSetting("text-generation-fallback")}
-          description="Where background writing goes when its model cannot run. Local models only never sends it to a cloud provider you did not choose."
-          resetAction={
-            settings.textGenerationFallback !== DEFAULT_UNIFIED_SETTINGS.textGenerationFallback ? (
-              <SettingResetButton
-                label="text generation fallback"
-                onClick={() =>
-                  updateSettings({
-                    textGenerationFallback: DEFAULT_UNIFIED_SETTINGS.textGenerationFallback,
+                    responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
                   })
                 }
               />
@@ -1812,86 +1609,360 @@ export function ThreadsSettingsPanel() {
           }
           control={
             <Select
-              value={settings.textGenerationFallback}
+              value={mixedResponseStreamingMode ? null : settings.responseStreamingMode}
               onValueChange={(value) => {
-                if (value === "local" || value === "any" || value === "none") {
-                  updateSettings({ textGenerationFallback: value });
+                if (value === "turn" || value === "paragraph") {
+                  updateSettings({ responseStreamingMode: value });
                 }
               }}
             >
-              <SelectTrigger size="sm" className="w-full sm:w-56" aria-label="Fallback">
+              <SelectTrigger size="sm" className="w-full sm:w-56" aria-label="Response streaming">
                 <SelectValue>
-                  {(value: TextGenerationFallback) => TEXT_GENERATION_FALLBACK_LABELS[value]}
+                  {(value: ResponseStreamingMode | null) =>
+                    value === null ? "Mixed" : RESPONSE_STREAMING_MODE_LABELS[value]
+                  }
                 </SelectValue>
               </SelectTrigger>
               <SelectPopup align="end" alignItemWithTrigger={false}>
-                {TEXT_GENERATION_FALLBACKS.map((value) => (
-                  <SelectItem key={value} hideIndicator value={value}>
-                    {TEXT_GENERATION_FALLBACK_LABELS[value]}
-                  </SelectItem>
-                ))}
+                <SelectItem hideIndicator value="turn">
+                  {RESPONSE_STREAMING_MODE_LABELS.turn}
+                </SelectItem>
+                <SelectItem hideIndicator value="paragraph">
+                  {RESPONSE_STREAMING_MODE_LABELS.paragraph}
+                </SelectItem>
               </SelectPopup>
             </Select>
           }
         />
-        <AdvancedSettings
-          targetIds={[
-            searchableSetting("thread-title-instructions").id,
-            searchableSetting("response-streaming").id,
-          ]}
-        >
-          <ThreadTitleInstructionsSettings />
-          <SettingsRow
-            serverScoped
-            settingKeys={["responseStreamingMode"]}
-            {...searchableSetting("response-streaming")}
-            description={
-              mixedResponseStreamingMode
-                ? "The selected targets use different streaming modes."
-                : RESPONSE_STREAMING_MODE_DESCRIPTIONS[settings.responseStreamingMode]
-            }
-            resetAction={
-              settings.responseStreamingMode !== DEFAULT_UNIFIED_SETTINGS.responseStreamingMode ? (
-                <SettingResetButton
-                  label="response streaming"
-                  onClick={() =>
-                    updateSettings({
-                      responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
-                    })
-                  }
-                />
-              ) : null
-            }
-            control={
-              <Select
-                value={mixedResponseStreamingMode ? null : settings.responseStreamingMode}
-                onValueChange={(value) => {
-                  if (value === "turn" || value === "paragraph") {
-                    updateSettings({ responseStreamingMode: value });
-                  }
-                }}
-              >
-                <SelectTrigger size="sm" className="w-full sm:w-56" aria-label="Response streaming">
-                  <SelectValue>
-                    {(value: ResponseStreamingMode | null) =>
-                      value === null ? "Mixed" : RESPONSE_STREAMING_MODE_LABELS[value]
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
-                  <SelectItem hideIndicator value="turn">
-                    {RESPONSE_STREAMING_MODE_LABELS.turn}
-                  </SelectItem>
-                  <SelectItem hideIndicator value="paragraph">
-                    {RESPONSE_STREAMING_MODE_LABELS.paragraph}
-                  </SelectItem>
-                </SelectPopup>
-              </Select>
-            }
-          />
-        </AdvancedSettings>
       </SettingsSection>
     </SettingsPageContainer>
+  );
+}
+
+/** Where titles, commit messages, pull request text and branch names are written. */
+export function BackgroundWritingSettings() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  const navigate = useNavigate();
+  const { environment, connectedEnvironments, target } = useSettingsScope();
+  const environmentId = environment?.environmentId ?? null;
+  const hasServerTargets = connectedEnvironments.length > 0;
+  const providersByEnvironment = useEnvironmentProviders();
+  const serverProviders =
+    (environment?.serverConfig
+      ? providersByEnvironment.get(environment.environmentId)
+      : undefined) ?? EMPTY_SERVER_PROVIDERS;
+
+  const textGenerationProviders = serverProviders.filter(
+    (provider) => provider.supportsTextGeneration !== false,
+  );
+  const textGenerationModelSelection = resolveAppModelSelectionState(
+    settings,
+    textGenerationProviders,
+  );
+  const textGenInstanceId = textGenerationModelSelection.instanceId;
+  const textGenModel = textGenerationModelSelection.model;
+  const textGenModelOptions = textGenerationModelSelection.options;
+  const textGenerationModelInstanceEntries = providerInstanceEntriesFor(
+    textGenerationProviders,
+    settings,
+    target?.projectId ?? null,
+  );
+  const hasTextGenerationProvider = textGenerationModelInstanceEntries.some(
+    (entry) => entry.enabled && entry.isAvailable,
+  );
+  const textGenInstanceEntry = textGenerationModelInstanceEntries.find(
+    (entry) => entry.instanceId === textGenInstanceId,
+  );
+  const textGenProvider: ProviderDriverKind =
+    textGenInstanceEntry?.driverKind ?? DEFAULT_DRIVER_KIND;
+  const textGenerationModelOptionsByInstance = getCustomModelOptionsByInstance(
+    settings,
+    textGenerationProviders,
+    textGenInstanceId,
+    textGenModel,
+  );
+  const isTextGenerationModelDirty = !Equal.equals(
+    settings.textGenerationModelSelection ?? null,
+    DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
+  );
+  const textGenerationModelDisabledReason = useScopedModelDisabledReason(
+    settings,
+    textGenerationModelInstanceEntries,
+  );
+  const mixedTextGenerationModel = useScopedSettingsMixed(["textGenerationModelSelection"]);
+
+  const providerReady = serverProviders.some(
+    (provider) => provider.inference === "local" && provider.enabled && provider.status === "ready",
+  );
+  return (
+    <SettingsSection id="text-generation" title="Background writing">
+      {hasServerTargets &&
+      settings.textGenerationFallback !== "any" &&
+      !settings.textGenerationModelSelectionExplicit &&
+      !providerReady ? (
+        <BackgroundWritingPausedRow
+          onAllowAnyProvider={() => updateSettings({ textGenerationFallback: "any" })}
+        />
+      ) : null}
+      <SettingsRow
+        serverScoped
+        settingKeys={["textGenerationModelSelection"]}
+        {...searchableSetting("text-generation-model")}
+        description={
+          !settings.textGenerationModelSelectionExplicit &&
+          Object.values(settings.providerInstances).some(
+            (instance) => instance.inference === "local",
+          )
+            ? "Automatic: a ready local model writes thread titles and other generated text until you pick a model here. Source control can override it."
+            : "Used for thread titles and other generated text on connected devices with this provider. Source control can override it."
+        }
+        resetAction={
+          hasServerTargets && isTextGenerationModelDirty ? (
+            <SettingResetButton
+              label="text generation model"
+              onClick={() =>
+                updateSettings({
+                  textGenerationModelSelection:
+                    DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
+                  textGenerationModelSelectionExplicit: false,
+                })
+              }
+            />
+          ) : null
+        }
+        control={
+          !hasServerTargets ? (
+            <span className="text-sm text-muted-foreground">
+              Connect an environment to choose its text generation model.
+            </span>
+          ) : !hasTextGenerationProvider ? (
+            <span className="text-sm text-muted-foreground">
+              No text generation providers available.
+            </span>
+          ) : (
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              <ProviderModelPicker
+                environmentId={environmentId}
+                activeInstanceId={textGenInstanceId}
+                model={textGenModel}
+                lockedProvider={null}
+                instanceEntries={textGenerationModelInstanceEntries}
+                modelOptionsByInstance={textGenerationModelOptionsByInstance}
+                triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+                {...(mixedTextGenerationModel ? { triggerLabel: "Mixed" } : {})}
+                getModelDisabledReason={textGenerationModelDisabledReason}
+                {...(environmentId
+                  ? {
+                      onOpenProviderSetup: (instanceId: ProviderInstanceId) => {
+                        void navigate({
+                          to: "/settings/providers",
+                          search: { environmentId, instanceId },
+                        });
+                      },
+                    }
+                  : {})}
+                onInstanceModelChange={(instanceId, model) => {
+                  const reason = textGenerationModelDisabledReason(instanceId, model);
+                  if (reason) {
+                    toastManager.add({
+                      type: "error",
+                      title: "Text generation model not saved",
+                      description: reason,
+                    });
+                    return;
+                  }
+                  updateSettings({
+                    textGenerationModelSelection: resolveAppModelSelectionState(
+                      {
+                        ...settings,
+                        textGenerationModelSelection: createModelSelection(instanceId, model),
+                      },
+                      textGenerationProviders,
+                    ),
+                  });
+                }}
+              />
+              {textGenInstanceEntry ? (
+                <TraitsPicker
+                  provider={textGenProvider}
+                  models={textGenInstanceEntry?.models ?? []}
+                  model={textGenModel}
+                  modelOptions={textGenModelOptions}
+                  allowPromptInjectedEffort={false}
+                  planModeEnabled={
+                    settings.planModeEnabled || selectsPlanAgent(textGenModelOptions)
+                  }
+                  triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+                  onModelOptionsChange={(nextOptions) => {
+                    updateSettings({
+                      textGenerationModelSelection: resolveAppModelSelectionState(
+                        {
+                          ...settings,
+                          textGenerationModelSelection: createModelSelection(
+                            textGenInstanceId,
+                            textGenModel,
+                            nextOptions,
+                          ),
+                        },
+                        textGenerationProviders,
+                      ),
+                    });
+                  }}
+                />
+              ) : null}
+            </div>
+          )
+        }
+      />
+      <SettingsRow
+        serverScoped
+        settingKeys={["textGenerationFallback"]}
+        {...searchableSetting("text-generation-fallback")}
+        description="Where background writing goes when its model cannot run. Local models only never sends it to a cloud provider you did not choose."
+        resetAction={
+          settings.textGenerationFallback !== DEFAULT_UNIFIED_SETTINGS.textGenerationFallback ? (
+            <SettingResetButton
+              label="text generation fallback"
+              onClick={() =>
+                updateSettings({
+                  textGenerationFallback: DEFAULT_UNIFIED_SETTINGS.textGenerationFallback,
+                })
+              }
+            />
+          ) : null
+        }
+        control={
+          <Select
+            value={settings.textGenerationFallback}
+            onValueChange={(value) => {
+              if (value === "local" || value === "any" || value === "none") {
+                updateSettings({ textGenerationFallback: value });
+              }
+            }}
+          >
+            <SelectTrigger size="sm" className="w-full sm:w-56" aria-label="Fallback">
+              <SelectValue>
+                {(value: TextGenerationFallback) => TEXT_GENERATION_FALLBACK_LABELS[value]}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup align="end" alignItemWithTrigger={false}>
+              {TEXT_GENERATION_FALLBACKS.map((value) => (
+                <SelectItem key={value} hideIndicator value={value}>
+                  {TEXT_GENERATION_FALLBACK_LABELS[value]}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        }
+      />
+      <AdvancedSettings targetIds={[searchableSetting("thread-title-instructions").id]}>
+        <ThreadTitleInstructionsSettings />
+      </AdvancedSettings>
+    </SettingsSection>
+  );
+}
+
+function BackgroundWritingPausedRow({
+  onAllowAnyProvider,
+}: {
+  readonly onAllowAnyProvider: () => void;
+}) {
+  const navigate = useNavigate();
+  const allowAnyProvider = async () => {
+    const confirmed = await (readLocalApi() ?? ensureLocalApi()).dialogs.confirm(
+      "Let background writing use any provider?\nThread titles, commit messages and pull request text may then go to a cloud provider when no local model is ready.",
+    );
+    if (confirmed) onAllowAnyProvider();
+  };
+  return (
+    <SettingsRow
+      title={
+        <span className="flex items-center gap-1.5">
+          <AlertTriangleIcon className="size-3.5 shrink-0 text-warning" aria-hidden />
+          Background writing is paused
+        </span>
+      }
+      description="No local model is ready, and Local models only keeps your code off the cloud. Threads keep their first message as the title; write commit and pull request text yourself."
+      control={
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          <Button
+            size="xs"
+            onClick={() => void navigate({ to: "/settings/inference", search: { setup: "local" } })}
+          >
+            Use a local model
+          </Button>
+          <Button size="xs" variant="outline" onClick={() => void allowAnyProvider()}>
+            Allow any provider
+          </Button>
+        </div>
+      }
+    />
+  );
+}
+
+/** Where Add Project starts and how clones are laid out. */
+export function NewProjectsSettings() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  const mixedAddProjectBaseDirectory = useScopedSettingsMixed(["addProjectBaseDirectory"]);
+  return (
+    <SettingsSection id="new-projects" title="New projects">
+      <SettingsRow
+        serverScoped
+        settingKeys={["addProjectBaseDirectory"]}
+        {...searchableSetting("add-project-starts-in")}
+        description='Leave empty to use "~/" when the Add Project browser opens.'
+        resetAction={
+          settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory ? (
+            <SettingResetButton
+              label="add project base directory"
+              onClick={() =>
+                updateSettings({
+                  addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
+                })
+              }
+            />
+          ) : null
+        }
+        control={
+          <DraftInput
+            size="sm"
+            className="w-full sm:w-72"
+            value={mixedAddProjectBaseDirectory ? "" : settings.addProjectBaseDirectory}
+            onCommit={(next) => updateSettings({ addProjectBaseDirectory: next })}
+            normalizeDraft={resolvePastedPath}
+            placeholder={mixedAddProjectBaseDirectory ? "Mixed" : "~/"}
+            spellCheck={false}
+            aria-label="Add project base directory"
+          />
+        }
+      />
+      <SettingsRow
+        serverScoped
+        settingKeys={["ghqCloneLayout"]}
+        {...searchableSetting("ghq-clone-layout")}
+        description="Clones go to github.com/owner/repo under the folder above, like ghq."
+        resetAction={
+          settings.ghqCloneLayout !== DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout ? (
+            <SettingResetButton
+              label="clone into host folders"
+              onClick={() =>
+                updateSettings({ ghqCloneLayout: DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout })
+              }
+            />
+          ) : null
+        }
+        control={
+          <ScopedSwitch
+            settingKeys={["ghqCloneLayout"]}
+            checked={settings.ghqCloneLayout}
+            onCheckedChange={(checked) => updateSettings({ ghqCloneLayout: Boolean(checked) })}
+            aria-label="Clone into host folders"
+          />
+        }
+      />
+    </SettingsSection>
   );
 }
 

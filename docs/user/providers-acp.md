@@ -7,7 +7,7 @@ delegation.
 
 Agents that T3 Code supports as their own providers, such as Codex, Claude, Cursor, Grok, OpenCode,
 Pi, and [Antigravity](./providers-antigravity.md), don't appear in the Registry list. Enable them in
-**Settings → Providers** instead.
+**Settings → Models & agents → Agents** instead.
 
 T3 Code prefers the current ACP v2 preview protocol and uses its richer messages, usage, plans,
 configuration, compaction, and agent-terminal updates when the agent supports them. It also
@@ -20,7 +20,7 @@ provider instance's environment overrides to use ACP v1.
 
 ## Add an agent
 
-1. Open **Settings → Providers**.
+1. Open **Settings → Models & agents → Agents**.
 2. Select **Add provider**, then **Show more**.
 3. Search the ACP Registry for the agent and select **Add** on its result.
 4. Confirm the name and instance ID, then complete the agent's sign-in step.
@@ -30,7 +30,7 @@ code; review an agent's source and license before adding it.
 
 ## Add a local command
 
-In **Settings → Providers → Add provider**, select **Show more**, then **Local ACP command**. Enter the executable
+In **Settings → Models & agents → Agents → Add provider**, select **Show more**, then **Local ACP command**. Enter the executable
 name or path on the selected environment, add one literal argument per row, and choose a display
 name. For DeepSeek Harness, use `dsh` with arguments `--profile` and `acp`.
 
@@ -53,7 +53,7 @@ but keeps package installs. To use an existing local binary, set **Executable ov
 
 ## Signing in
 
-Open the agent's account section in **Settings → Providers** on web or desktop. Choose
+Open the agent's account section in **Settings → Models & agents → Agents** on web or desktop. Choose
 **Sign in** and, if the agent offers several methods, select one. For an installed, configured
 provider, mobile also offers **Settings → Providers**.
 

@@ -16,6 +16,7 @@ import { commandLabel } from "./KeybindingsSettings.logic";
 import type { ResolvedSettingsScope } from "./settingsScope";
 
 export type SettingsPath =
+  | "/settings/models"
   | "/settings/projects"
   | "/settings/general"
   | "/settings/diagnostics"
@@ -88,77 +89,108 @@ export interface SettingsSearchAvailability {
 }
 
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
+  "/settings/models": "Models",
   "/settings/diagnostics": "Diagnostics",
   "/settings/projects": "Projects",
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
   "/settings/chat": "Chat",
   "/settings/diffs": "Diffs & pull requests",
-  "/settings/keybindings": "Keybindings",
+  "/settings/keybindings": "Keyboard shortcuts",
   "/settings/snap-shot": "SnapShots",
-  "/settings/providers": "Providers",
-  "/settings/inference": "Inference",
+  "/settings/providers": "Agents",
+  "/settings/inference": "Model servers",
   "/settings/threads": "Threads",
   "/settings/browser": "Browser",
   "/settings/devices": "Devices",
   "/settings/scheduled-tasks": "Scheduled tasks",
   "/settings/source-control": "Source control",
   "/settings/worktrees": "Worktrees",
-  "/settings/connections": "Environments",
+  "/settings/connections": "Computers",
   "/settings/access": "Sharing & access",
   "/settings/secrets": "Secrets",
   "/settings/maintenance": "Maintenance",
   "/settings/labs": "Labs",
   "/settings/about": "About",
   "/settings/voice": "Voice",
-  "/settings/archived": "Archive",
+  "/settings/archived": "Archived threads",
 };
 
-/** Sidebar order. A group without a heading is set apart by space alone. */
-export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
-  readonly heading: string | null;
+/** Former and technical names a page still answers to in search. */
+const SETTINGS_SECTION_ALIASES: Readonly<Partial<Record<SettingsPath, ReadonlyArray<string>>>> = {
+  "/settings/models": ["models agents", "default model", "background writing", "text generation"],
+  "/settings/providers": ["providers", "harness"],
+  "/settings/inference": ["inference", "inference servers", "local models", "gpu"],
+  "/settings/connections": ["environments", "connections", "machines"],
+  "/settings/keybindings": ["keybindings", "hotkeys"],
+  "/settings/archived": ["archive"],
+  "/settings/labs": ["beta", "experimental", "advanced"],
+  "/settings/maintenance": ["advanced", "storage"],
+};
+
+export interface SettingsDestination {
+  readonly label: string;
+  /** Its pages, shown as tabs; the first is where the destination opens. */
   readonly paths: ReadonlyArray<SettingsPath>;
-}> = [
+}
+
+/** The sidebar: a few task-named destinations, each a tab strip over the pages it holds. */
+export const SETTINGS_DESTINATIONS: ReadonlyArray<SettingsDestination> = [
   {
-    heading: null,
+    label: "Models & agents",
+    paths: ["/settings/models", "/settings/inference", "/settings/providers"],
+  },
+  { label: "General", paths: ["/settings/general"] },
+  { label: "Appearance", paths: ["/settings/appearance"] },
+  {
+    label: "Chat & input",
     paths: [
-      "/settings/general",
-      "/settings/appearance",
       "/settings/chat",
-      "/settings/diffs",
-      "/settings/keybindings",
+      "/settings/threads",
       "/settings/voice",
       "/settings/snap-shot",
+      "/settings/keybindings",
     ],
   },
   {
-    heading: "Agents",
+    label: "Projects & Git",
     paths: [
-      "/settings/providers",
-      "/settings/inference",
-      "/settings/threads",
-      "/settings/browser",
-      "/settings/devices",
-      "/settings/scheduled-tasks",
+      "/settings/projects",
+      "/settings/source-control",
+      "/settings/diffs",
+      "/settings/worktrees",
+      "/settings/archived",
     ],
   },
   {
-    heading: "Code",
-    paths: ["/settings/projects", "/settings/source-control", "/settings/worktrees"],
+    label: "Tools & automation",
+    paths: ["/settings/browser", "/settings/devices", "/settings/scheduled-tasks"],
   },
   {
-    heading: "Connections",
+    label: "Connections & sharing",
     paths: [
       "/settings/connections",
       "/settings/access",
       ...(isSecretsFeatureEnabled ? (["/settings/secrets"] as const) : []),
     ],
   },
-  {
-    heading: null,
-    paths: ["/settings/maintenance", "/settings/labs", "/settings/about", "/settings/archived"],
-  },
+  { label: "Advanced", paths: ["/settings/maintenance", "/settings/labs"] },
+  { label: "About", paths: ["/settings/about"] },
 ];
+
+/** The destination a settings page belongs to; detail pages belong to the page that links them. */
+export function settingsDestinationFor(pathname: string): SettingsDestination | undefined {
+  const page = SETTINGS_DETAIL_PAGE_PARENTS[pathname] ?? pathname;
+  return SETTINGS_DESTINATIONS.find((destination) =>
+    destination.paths.some((path) => page === path || page.startsWith(`${path}/`)),
+  );
+}
+
+// Detail pages without a nav entry belong to the page that links to them.
+export const SETTINGS_DETAIL_PAGE_PARENTS: Readonly<Record<string, SettingsPath>> = {
+  "/settings/diagnostics": "/settings/maintenance",
+  "/settings/open-source-licenses": "/settings/about",
+};
 
 export function keybindingSearchAnchorId<Command extends KeybindingCommand>(command: Command) {
   return `keybinding-${command}` as const;
@@ -280,14 +312,14 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "default-model",
     title: "Default model",
-    to: "/settings/threads",
+    to: "/settings/models",
     scope: "project-defaults",
     searchTerms: ["new thread project provider reasoning effort"],
   },
   {
     id: "fallback-model",
     title: "Fallback model",
-    to: "/settings/threads",
+    to: "/settings/models",
     scope: "environment-defaults",
     searchTerms: ["fallback agent provider out of usage new threads"],
     environmentOnly: true,
@@ -461,20 +493,20 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "boring-sidebar",
-    title: "Boring sidebar (group by project)",
-    to: "/settings/labs",
+    title: "Group threads by project",
+    to: "/settings/general",
     searchTerms: ["beta folders project tree legacy old classic sidebar"],
   },
   {
     id: "boring-sidebar-multiline",
     title: "Two-line folder rows",
-    to: "/settings/labs",
+    to: "/settings/general",
     searchTerms: ["beta boring sidebar folder rows multiline branch pull request details"],
   },
   {
     id: "tool-call-visibility",
     title: "Tool calls in chat",
-    to: "/settings/labs",
+    to: "/settings/chat",
     searchTerms: [
       "beta hide tool calls commands edits searches work log activity quiet chat zen final answers only",
     ],
@@ -761,14 +793,14 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "add-project-starts-in",
     title: "Add project starts in",
-    to: "/settings/threads",
+    to: "/settings/source-control",
     scope: "environment-defaults",
     searchTerms: ["base directory folder browser path home"],
   },
   {
     id: "ghq-clone-layout",
     title: "Clone into host folders",
-    to: "/settings/threads",
+    to: "/settings/source-control",
     scope: "environment-defaults",
     searchTerms: ["ghq clone destination host owner repository root layout"],
   },
@@ -800,21 +832,21 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "text-generation-model",
     title: "Text generation model",
-    to: "/settings/threads",
+    to: "/settings/models",
     scope: "project-defaults",
     searchTerms: ["generated thread titles source control content default provider"],
   },
   {
     id: "text-generation-fallback",
     title: "Text generation fallback",
-    to: "/settings/threads",
+    to: "/settings/models",
     scope: "environment",
     searchTerms: ["local models only cloud privacy background writing titles commit messages"],
   },
   {
     id: "thread-title-instructions",
     title: "Thread title instructions",
-    to: "/settings/threads",
+    to: "/settings/models",
     scope: "project-defaults",
     searchTerms: ["generated thread titles prompt custom style naming rename regenerate"],
   },
@@ -1325,6 +1357,7 @@ export type SettingsSearchItemId = (typeof SETTINGS_SEARCH_ITEMS)[number]["id"];
 const SEARCH_ITEMS_BY_ID = new Map(SETTINGS_SEARCH_ITEMS.map((item) => [item.id, item] as const));
 
 const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScope | null>> = {
+  "/settings/models": null,
   "/settings/diagnostics": "environment",
   "/settings/projects": "project",
   "/settings/general": null,
@@ -1358,6 +1391,8 @@ const RENAMED_SETTINGS_PATHS: Readonly<Record<string, SettingsPath>> = {
 };
 const SPLIT_SETTINGS_PATHS: ReadonlySet<string> = new Set([
   "/settings/general",
+  "/settings/threads",
+  "/settings/labs",
   "/settings/appearance",
   "/settings/source-control",
   "/settings/connections",
@@ -1367,7 +1402,8 @@ const SPLIT_SETTINGS_PATHS: ReadonlySet<string> = new Set([
 const MOVED_SECTION_ANCHORS: Readonly<Record<string, SettingsPath>> = {
   "authorized-clients": "/settings/access",
   "legacy-features": "/settings/labs",
-  "text-generation": "/settings/threads",
+  "text-generation": "/settings/models",
+  "new-projects": "/settings/source-control",
   about: "/settings/about",
 };
 
@@ -1506,6 +1542,7 @@ export function searchSettings(
       const fields = [
         title,
         normalizeSearchText(SETTINGS_SECTION_LABELS[item.to]),
+        ...(SETTINGS_SECTION_ALIASES[item.to] ?? []).map(normalizeSearchText),
         ...(item.searchTerms ?? []).map(normalizeSearchText),
       ];
       if (!queryTokens.every((token) => fields.some((field) => field.includes(token)))) return [];

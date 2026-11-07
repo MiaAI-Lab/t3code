@@ -150,7 +150,7 @@ cannot drag or move threads within it. Your saved order returns when you turn it
 
 ### Group threads by project (beta)
 
-Turn on **Settings → Labs → Boring sidebar (group by project)** on web and desktop to put active
+Turn on **Settings → General → Group threads by project** on web and desktop to put active
 threads in a folder for each project. Pinned projects come first. A project with no active
 threads has no folder unless it is pinned or you pick it in the project filter. An archived
 project's folder comes last and shows only while it has active threads. Click a folder to open or
@@ -232,7 +232,7 @@ On mobile, the thread list search also lists message matches and opens them at
 the matching message; on an iPad with a keyboard, `Cmd+K` opens the same
 palette.
 
-Use **Settings → Keybindings** to find or customize shortcuts for searching files
+Use **Settings → Chat & input → Keyboard shortcuts** to find or customize shortcuts for searching files
 and copying a thread reference. A copied reference uses the thread's pull request
 link when available, otherwise a link to the thread, which opens it from anywhere
 you paste it and pastes into a composer as a thread chip (see

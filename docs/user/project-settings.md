@@ -27,7 +27,7 @@ again.
 Providers and diagnostics are per machine: they show one environment at a time, the primary
 one until you pick another. Every other setting fans out to the selection.
 
-With a project selected, a provider's switch in **Settings → Providers** turns it on or off for
+With a project selected, a provider's switch in **Settings → Models & agents → Agents** turns it on or off for
 that project only, in either direction: a provider off on the machine can be used in one project,
 and one on everywhere can be kept out of another. That project's model pickers follow the switch,
 and no new turn there can start on a provider it turned off, including queued messages and

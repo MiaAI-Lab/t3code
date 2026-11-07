@@ -165,5 +165,15 @@ it("a managed status offers the server's models; an unmanaged one says why", () 
   expect(
     withCodexGatewayStatus(draft, { managed: false, reason: "No Responses API." }).message,
   ).toBe("Signed in. No Responses API. Codex runs unmanaged.");
+  const cloudModels = { ...draft, models: managed.models };
+  const waiting = withCodexGatewayStatus(cloudModels, {
+    managed: false,
+    reason: "Inference server rtx is not ready.",
+    local: true,
+  });
+  expect(waiting.message).toBe(
+    "Signed in. Inference server rtx is not ready. Codex waits for it instead of running in the cloud.",
+  );
+  expect(waiting.models).toEqual([]);
   expect(withCodexGatewayStatus(draft, undefined)).toBe(draft);
 });

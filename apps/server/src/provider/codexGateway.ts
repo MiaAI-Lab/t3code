@@ -212,8 +212,15 @@ export function withCodexGatewayStatus<
 >(draft: Draft, resolution: InferenceGateway.ManagedServerResolution | undefined): Draft {
   if (resolution === undefined || !draft.enabled) return draft;
   if (!resolution.managed) {
-    const note = `${resolution.reason} Codex runs unmanaged.`;
-    return { ...draft, message: draft.message ? `${draft.message} ${note}` : note };
+    // Unmanaged Codex uses its own login, which is the cloud; a local instance waits instead.
+    const note = resolution.local
+      ? `${resolution.reason} Codex waits for it instead of running in the cloud.`
+      : `${resolution.reason} Codex runs unmanaged.`;
+    return {
+      ...draft,
+      message: draft.message ? `${draft.message} ${note}` : note,
+      ...(resolution.local ? { models: [] } : {}),
+    };
   }
   const { serverId, displayName, models } = resolution.server;
   return {

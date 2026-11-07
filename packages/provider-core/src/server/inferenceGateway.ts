@@ -23,7 +23,12 @@ export interface ManagedInferenceServer {
 /** Why a linked server is or is not managed for a harness; the reason is user-facing text. */
 export type ManagedServerResolution =
   | { readonly managed: true; readonly server: ManagedInferenceServer }
-  | { readonly managed: false; readonly reason: string };
+  | {
+      readonly managed: false;
+      readonly reason: string;
+      /** The instance still counts as local, so it must wait rather than run on its own setup. */
+      readonly local?: boolean;
+    };
 
 export interface ManagedServerCredential {
   readonly server: ManagedInferenceServer;

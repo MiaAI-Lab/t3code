@@ -32,9 +32,10 @@ function resolveManagedServer(
   if (serverId === undefined) return undefined;
   const snapshot = snapshots.find((candidate) => candidate.id === serverId);
   const name = snapshot?.displayName ?? serverId;
-  const unmanaged = (reason: string) => ({ managed: false, reason }) as const;
+  // A disabled server makes the instance cloud again; any other gap leaves it local.
+  const unmanaged = (reason: string) => ({ managed: false, reason, local: true }) as const;
   if (settings.inferenceServers[serverId]?.enabled !== true) {
-    return unmanaged(`Inference server ${name} is disabled.`);
+    return { managed: false, reason: `Inference server ${name} is disabled.` } as const;
   }
   if (snapshot?.status !== "ready") return unmanaged(`Inference server ${name} is not ready.`);
   if (snapshot.apiProtocols?.includes(protocol) !== true) {

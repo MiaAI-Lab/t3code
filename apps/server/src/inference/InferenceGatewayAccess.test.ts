@@ -98,12 +98,33 @@ it.effect(
     }),
 );
 
+it.effect(
+  "keeps a linked instance local while its server is down, but not once it is disabled",
+  () =>
+    Effect.gen(function* () {
+      const resolve = (snapshot: InferenceServerSnapshot, enabled: boolean) =>
+        Effect.gen(function* () {
+          const service = yield* InferenceGateway.InferenceGatewayAccess;
+          return yield* service.resolve(pi, "chat-completions");
+        }).pipe(Effect.provide(layerFor(snapshot, enabled)));
+      expect(yield* resolve({ ...ready, status: "unreachable" }, true)).toMatchObject({
+        managed: false,
+        local: true,
+      });
+      expect(yield* resolve(ready, false)).toEqual({
+        managed: false,
+        reason: "Inference server rtx is disabled.",
+      });
+    }),
+);
+
 it.effect("says why a linked server is not managed, and issues instance credentials", () =>
   Effect.gen(function* () {
     const service = yield* InferenceGateway.InferenceGatewayAccess;
     expect(yield* service.resolve(pi, "responses")).toEqual({
       managed: false,
       reason: "Inference server rtx does not serve the OpenAI Responses API this provider needs.",
+      local: true,
     });
     expect(yield* service.resolve(ProviderInstanceId.make("unlinked"), "responses")).toBe(
       undefined,

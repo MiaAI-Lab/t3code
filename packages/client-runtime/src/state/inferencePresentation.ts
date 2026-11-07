@@ -110,13 +110,27 @@ export interface InferenceModelNotServed {
  * server being checked or down says nothing about its models, so that is not reported here.
  * Gateway entries are `t3-<server>/<model>`; a linked Codex lists the model ids themselves.
  */
-export function inferenceModelNotServed(input: {
+export function inferenceModelNotServed(input: LinkedModelInput): InferenceModelNotServed | null {
+  const linked = linkedServerModel(input);
+  if (linked === null || linked.served !== undefined) return null;
+  return {
+    id: linked.id,
+    name: linked.name,
+    model: linked.model,
+    served: linked.snapshot.models.map((served) => served.id),
+  };
+}
+
+interface LinkedModelInput {
   readonly serverId: string | undefined;
   readonly driver: string | undefined;
   readonly modelSlug: string;
   readonly servers: InferenceServers;
   readonly snapshots: ReadonlyArray<InferenceServerSnapshot>;
-}): InferenceModelNotServed | null {
+}
+
+/** The selected model on a linked server that is enabled, checked and ready. */
+function linkedServerModel(input: LinkedModelInput) {
   if (input.serverId === undefined) return null;
   const config = input.servers[input.serverId as InferenceServerId];
   const snapshot = input.snapshots.find((candidate) => candidate.id === input.serverId);
@@ -127,12 +141,35 @@ export function inferenceModelNotServed(input: {
     : input.driver === "codex"
       ? input.modelSlug
       : null;
-  if (model === null || snapshot.models.some((served) => served.id === model)) return null;
+  if (model === null) return null;
   return {
     id: input.serverId as InferenceServerId,
     name: inferenceServerDisplayName(input.serverId, config),
     model,
-    served: snapshot.models.map((served) => served.id),
+    snapshot,
+    served: snapshot.models.find((served) => served.id === model),
+  };
+}
+
+export interface InferenceModelImageGap {
+  readonly id: InferenceServerId;
+  readonly name: string;
+  readonly model: string;
+  /** `text-only`: its engine or T3's check says so; `unchecked`: nobody knows yet. */
+  readonly reason: "text-only" | "unchecked";
+}
+
+/** Why an image attached for the selected linked model would not reach it; null when it would. */
+export function inferenceModelImageGap(input: LinkedModelInput): InferenceModelImageGap | null {
+  const linked = linkedServerModel(input);
+  if (linked?.served === undefined) return null;
+  const image = linked.served.capabilities?.image;
+  if (image?.supported === true) return null;
+  return {
+    id: linked.id,
+    name: linked.name,
+    model: linked.model,
+    reason: image === undefined ? "unchecked" : "text-only",
   };
 }
 

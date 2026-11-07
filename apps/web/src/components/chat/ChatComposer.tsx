@@ -2595,6 +2595,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     environmentId,
     selectedProviderStatus,
     selectedModel,
+    composerImages.length > 0,
     () => setIsComposerModelPickerOpen(true),
   );
   const inferenceStopItem = useInferenceStopBannerItem(

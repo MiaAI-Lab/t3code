@@ -13,12 +13,14 @@ import {
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -132,7 +134,42 @@ const ENGINE_BY_OWNER: Readonly<Record<string, string>> = {
   tensorfold: "TensorFold",
   vllm: "vLLM",
   llamacpp: "llama.cpp",
+  library: "Ollama",
+  organization_owner: "LM Studio",
 };
+
+/** llama.cpp's /props: one loaded model, with or without a vision projector. */
+function readLlamaCppVision(props: unknown): boolean | undefined {
+  return isRecord(props) &&
+    isRecord(props.modalities) &&
+    typeof props.modalities.vision === "boolean"
+    ? props.modalities.vision
+    : undefined;
+}
+
+/** LM Studio's native model list types vision models "vlm". */
+function readLmStudioVision(list: unknown): ReadonlyMap<string, boolean> {
+  if (!isRecord(list) || !Array.isArray(list.data)) return new Map();
+  return new Map(
+    list.data.flatMap((model) =>
+      isRecord(model) &&
+      typeof model.id === "string" &&
+      (model.type === "vlm" || model.type === "llm")
+        ? [[model.id, model.type === "vlm"] as const]
+        : [],
+    ),
+  );
+}
+
+/** Ollama's /api/show lists what a model can do. */
+function readOllamaVision(show: unknown): boolean | undefined {
+  return isRecord(show) && Array.isArray(show.capabilities)
+    ? show.capabilities.includes("vision")
+    : undefined;
+}
+
+// Ollama answers /api/show per model, so its answers are reused across probes for a while.
+const OLLAMA_SHOW_REUSE_MS = 10 * 60_000;
 
 /** An OpenAI-format model list and the engine its owner names; undefined when the body is not one. */
 export function readModelList(body: string) {
@@ -353,6 +390,65 @@ export const make = Effect.gen(function* () {
       ),
     );
 
+  const ollamaShows = yield* Ref.make(
+    new Map<string, { readonly atMs: number; readonly vision: boolean | undefined }>(),
+  );
+  const ollamaVision = Effect.fn("InferenceServerRegistry.ollamaVision")(function* (
+    origin: string,
+    apiKey: string,
+    model: string,
+  ) {
+    const key = `${origin} ${model}`;
+    const now = yield* Clock.currentTimeMillis;
+    const known = (yield* Ref.get(ollamaShows)).get(key);
+    if (known !== undefined && now - known.atMs < OLLAMA_SHOW_REUSE_MS) return known.vision;
+    const request = HttpClientRequest.post(`${origin}/api/show`).pipe(
+      HttpClientRequest.bodyJsonUnsafe({ model }),
+      apiKey === "" ? (request) => request : HttpClientRequest.bearerToken(apiKey),
+    );
+    const vision = yield* client.execute(request).pipe(
+      Effect.flatMap((response) =>
+        response.status >= 200 && response.status < 300 ? response.text : Effect.succeed(""),
+      ),
+      Effect.timeoutOption(ENRICHMENT_TIMEOUT),
+      Effect.map((body) => (body._tag === "Some" ? decodeJson(body.value) : Option.none())),
+      Effect.map((json) => (json._tag === "Some" ? readOllamaVision(json.value) : undefined)),
+      Effect.orElseSucceed(() => undefined),
+    );
+    yield* Ref.update(ollamaShows, (all) => new Map(all).set(key, { atMs: now, vision }));
+    return vision;
+  });
+
+  /** Whether each model reads images, as its engine says; absent when the engine does not say. */
+  const reportedVision = Effect.fn("InferenceServerRegistry.reportedVision")(function* (
+    engine: string | undefined,
+    origin: string,
+    apiKey: string,
+    models: ReadonlyArray<InferenceServerModel>,
+  ) {
+    if (engine === "llama.cpp") {
+      const vision = readLlamaCppVision(yield* enrichmentJson(`${origin}/props`, apiKey));
+      return new Map(
+        vision === undefined ? [] : models.map((model) => [model.id, vision] as const),
+      );
+    }
+    if (engine === "LM Studio") {
+      return readLmStudioVision(yield* enrichmentJson(`${origin}/api/v0/models`, apiKey));
+    }
+    if (engine === "Ollama") {
+      const found = yield* Effect.forEach(
+        models,
+        (model) =>
+          ollamaVision(origin, apiKey, model.id).pipe(
+            Effect.map((vision) => (vision === undefined ? [] : [[model.id, vision] as const])),
+          ),
+        { concurrency: 4 },
+      );
+      return new Map(found.flat());
+    }
+    return new Map<string, boolean>();
+  });
+
   const probe = Effect.fn("InferenceServerRegistry.probe")(function* (
     id: InferenceServerId,
     config: InferenceServerConfig,
@@ -423,16 +519,9 @@ export const make = Effect.gen(function* () {
       } as const;
     }
     const { engine: ownerEngine } = list;
-    const checkedImages = yield* imageVerdicts.forAddress(endpoint.display);
-    const models = list.models.map((model) => {
-      const image = checkedImages(model.id);
-      return image === undefined
-        ? model
-        : { ...model, capabilities: { ...model.capabilities, image } };
-    });
 
     // Optional: a failure here never downgrades the model list above.
-    const [health, metricsText, slots, protocols] = yield* Effect.all(
+    const [health, metricsText, slots, protocols, reported] = yield* Effect.all(
       [
         ownerEngine === "TensorFold"
           ? enrichmentJson(`${endpoint.origin}/health`, key)
@@ -449,9 +538,21 @@ export const make = Effect.gen(function* () {
             ),
           { concurrency: "unbounded" },
         ).pipe(Effect.map((found) => found.flat())),
+        reportedVision(ownerEngine, endpoint.origin, key, list.models),
       ],
       { concurrency: "unbounded" },
     );
+    const checkedImages = yield* imageVerdicts.forAddress(endpoint.display);
+    // T3's own check outranks what the engine says.
+    const models = list.models.map((model) => {
+      const vision = reported.get(model.id);
+      const image =
+        checkedImages(model.id) ??
+        (vision === undefined ? undefined : { supported: vision, source: "reported" as const });
+      return image === undefined
+        ? model
+        : { ...model, capabilities: { ...model.capabilities, image } };
+    });
     const totals =
       metricsText._tag === "Response" && metricsText.status >= 200 && metricsText.status < 300
         ? sumMetrics(metricsText.body)

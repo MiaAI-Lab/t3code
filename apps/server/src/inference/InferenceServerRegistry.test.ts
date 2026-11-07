@@ -277,11 +277,18 @@ describe("InferenceServerRegistry probes", () => {
         },
         [`${HOST}/slots`]: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
         [`${HOST}/metrics`]: "llamacpp:requests_processing 1\nllamacpp:requests_deferred 2\n",
+        [`${HOST}/props`]: { modalities: { vision: true, audio: false } },
       });
       expect(snapshot).toMatchObject({
         status: "ready",
         engine: "llama.cpp",
-        models: [{ id: "gemma-3-27b.gguf", trainedContextWindow: 131072 }],
+        models: [
+          {
+            id: "gemma-3-27b.gguf",
+            trainedContextWindow: 131072,
+            capabilities: { image: { supported: true, source: "reported" } },
+          },
+        ],
         load: { running: 1, waiting: 2 },
         maxConcurrentRequests: 4,
       });
@@ -290,18 +297,34 @@ describe("InferenceServerRegistry probes", () => {
   );
 
   it.effect.each([
-    ["Ollama", { id: "qwen3:8b", object: "model", created: 1, owned_by: "library" }],
-    ["LM Studio", { id: "qwen/qwen3-8b", object: "model", owned_by: "organization_owner" }],
-  ] as const)("lists %s models without metadata or enrichments", ([, model]) =>
-    Effect.gen(function* () {
-      const snapshot = yield* probe({
-        [`${HOST}/v1/models`]: { object: "list", data: [model] },
-      });
-      expect(snapshot).toMatchObject({ status: "ready", models: [{ id: model.id }] });
-      expect(snapshot?.engine).toBeUndefined();
-      expect(snapshot?.load).toBeUndefined();
-      expect(snapshot?.maxConcurrentRequests).toBeUndefined();
-    }),
+    [
+      "Ollama",
+      { id: "qwen3:8b", object: "model", created: 1, owned_by: "library" },
+      { [`${HOST}/api/show`]: { capabilities: ["completion", "tools"] } },
+    ],
+    [
+      "LM Studio",
+      { id: "qwen/qwen3-8b", object: "model", owned_by: "organization_owner" },
+      { [`${HOST}/api/v0/models`]: { data: [{ id: "qwen/qwen3-8b", type: "llm" }] } },
+    ],
+  ] as const)(
+    "lists %s models and whether they read images, without load",
+    ([engine, model, native]) =>
+      Effect.gen(function* () {
+        const snapshot = yield* probe({
+          [`${HOST}/v1/models`]: { object: "list", data: [model] },
+          ...native,
+        });
+        expect(snapshot).toMatchObject({
+          status: "ready",
+          engine,
+          models: [
+            { id: model.id, capabilities: { image: { supported: false, source: "reported" } } },
+          ],
+        });
+        expect(snapshot?.load).toBeUndefined();
+        expect(snapshot?.maxConcurrentRequests).toBeUndefined();
+      }),
   );
 
   it.effect("skips entries without an id and ignores metadata of the wrong type", () =>

@@ -17,6 +17,7 @@ import {
   formatMeasuredSeconds,
   formatTokensPerSecond,
   groupLocalCompute,
+  inferenceModelImageGap,
   inferenceModelNotServed,
   inferenceServerOutage,
   inferenceServerRequestHealth,
@@ -437,5 +438,32 @@ describe("inferenceModelNotServed", () => {
     expect(check("t3-rtx/GLM-5.3-Flash", ready([], "unreachable"))).toBeNull();
     expect(check("t3-rtx/GLM-5.3-Flash", ready(["DeepSeek"], "checking"))).toBeNull();
     expect(check("tensorfold/GLM-5.3-Flash", ready(["DeepSeek"]))).toBeNull();
+  });
+
+  it("tells an image a served model reads apart from one it does not, or nobody checked", () => {
+    const withImages = (image: { supported: boolean } | undefined) => [
+      {
+        ...ready([])[0]!,
+        models: [
+          {
+            id: "GLM-5.3-Flash",
+            ...(image === undefined
+              ? {}
+              : { capabilities: { image: { ...image, source: "checked" as const } } }),
+          },
+        ],
+      },
+    ];
+    const gap = (
+      snapshots: ReadonlyArray<InferenceServerSnapshot>,
+      modelSlug = "t3-rtx/GLM-5.3-Flash",
+    ) =>
+      inferenceModelImageGap({ serverId: rtx, driver: "pi", modelSlug, servers, snapshots })
+        ?.reason ?? null;
+    expect(gap(withImages({ supported: true }))).toBeNull();
+    expect(gap(withImages({ supported: false }))).toBe("text-only");
+    expect(gap(withImages(undefined))).toBe("unchecked");
+    // A model the server no longer lists is the not-served notice's to report.
+    expect(gap(withImages(undefined), "t3-rtx/DeepSeek")).toBeNull();
   });
 });

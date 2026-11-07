@@ -1,154 +1,80 @@
-# T3 Code
+# T3 Code (local-first fork)
 
-T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
+This is a fork of [T3 Code](https://github.com/pingdotgg/t3code). For everything T3 Code does,
+see the upstream README. This page covers only what this fork adds.
 
-Local models come first: run Pi, OpenCode, Claude Code, or Codex against Ollama, LM Studio, llama.cpp, vLLM, SGLang, or any OpenAI- or Anthropic-compatible server on your own hardware ([guide](./docs/user/local-models.md)). Your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, Google Antigravity, and fx keep working too. If they're set up on your computer, T3 Code can control them.
+## What's different
 
-## "Wait, what are you selling me?"
+Local models come first. Cloud providers keep working, but models on your own hardware are the
+default and the core of the app.
 
-Nothing. We built T3 Code because we wanted the best possible development experience with agents. We were inspired by existing solutions like the Codex desktop app, Conductor, Claude Desktop and Cursor Glass, but none met our bar.
+### Local first
 
-We wanted something performant, remote-ready, and truly open. If we ever go the wrong direction, we want you to have everything you need to fork and build the editor that you want.
+- **Runs local models**: mark a provider instance as local. Local instances come first in the
+  model picker and provider lists, and new threads default to them.
+- **Background writing stays local**: thread titles, commit messages, PR text, branch names and
+  voice cleanup use a local model. **Settings → Threads → Text generation fallback** defaults to
+  **Local models only**, so your diffs never move to a cloud provider on their own.
+- **Local is never priced**: local models show **Local** instead of a cloud price and never add to
+  the cost total.
 
-## Installation
+### Inference servers
 
-> [!WARNING]
-> T3 Code currently supports Pi, OpenCode, Codex, Claude, Cursor, Grok Build, Antigravity, and fx. Install and set up at least one provider before use:
->
-> - Pi or OpenCode with a local model: see [Local models](./docs/user/local-models.md)
-> - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
-> - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
-> - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `agent login`
-> - Grok Build: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
-> - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
-> - Antigravity: enable it in Settings, then use **Install Antigravity** and **Sign in with Google**. No CLI is required.
-> - fx: install [fx](https://fx.sh) and run `fx login` on the machine running the T3 Code server ([setup guide](./docs/user/providers-fx.md))
+- **Settings → Inference**: register your model servers (Ollama, LM Studio, llama.cpp, vLLM,
+  SGLang, TensorFold, or anything OpenAI-compatible). Each shows its readiness, models, context
+  windows, load, last failure and, on TensorFold, prompt cache health.
+- **Fallback server**: a server can name another to take its requests when it is down. It is not
+  for overflow, and a request that already started is never moved.
+- **Link a provider to a server**: Pi, OpenCode and Codex (experimental) get a managed
+  `t3-<server>` provider with every model the server reports, sized from what it serves. No
+  `models.json` or `opencode.json` editing.
 
-### Command line
+### The inference gateway
 
-```bash
-curl -fsSL https://t3.codes/install.sh | sh
-```
+Linked providers send their requests through T3 Code, which:
 
-On Windows, in PowerShell:
+- queues requests per server (**Max concurrent requests**) so parallel threads take turns instead
+  of overloading the GPU. Chat goes ahead of background writing, and a waiting thread shows
+  `Waiting for <server> · N ahead`.
+- keeps each running session on the server and settings it started with, and keeps a Responses
+  conversation on the server that produced it.
+- records each request's prompt, cached, and output tokens, queue wait, time to first token and
+  decode speed, never the prompt or response text.
+- cancels the upstream request when a thread stops or T3 Code restarts.
 
-```powershell
-irm https://t3.codes/install.ps1 | iex
-```
+### Seeing what your hardware did
 
-Then run `t3` to start the server and open the local web app. `t3 service install` keeps it running in the background, `t3 update` moves to a newer release, and `t3 --help` has the full reference.
+- **Usage → Local compute**: requests, failures, tokens, cache share, and median and p95 queue
+  wait, time to first token and decode speed, per server, model and purpose.
+- **Last request** in a thread's details: prompt size, cached share, time to first token, which
+  server answered, and whether the instructions or tools changed since the previous request.
+- The mobile app shows the same server and compute views, read-only.
 
-To try it once without installing, run `npx t3@latest` instead.
+### Agents tuned for local models
 
-### Desktop app
+- **Lean T3 tools** for Pi on a linked server: a smaller tool set and shorter instructions, about
+  40% fewer prompt tokens with the same eval results on GLM.
+- **Cache-friendly compaction**: Pi compacts long threads from the server's prompt cache instead
+  of re-reading the whole thread.
+- **Codex on a local server**: T3's tool groups are flattened for servers that accept only plain
+  function tools.
+- **Local harness evals**: `evals/mcp-tool-use` runs a local model through Pi, Codex and OpenCode
+  side by side (`--harness`), recording tool-call validity, tokens and time to first token.
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
+### Appearance
 
-#### Windows (`winget`)
+- **Dark** is dark gray. The original true-black dark is kept as **OLED**. Pick either in
+  **Settings → Appearance** or the command palette.
 
-```bash
-winget install T3Tools.T3Code
-```
+## Build it
 
-#### Windows (`scoop`)
+Linux desktop app (needs Node 26, pnpm, a recent Rust, `libsecret-1-dev` and ImageMagick):
 
-```bash
-scoop install extras/t3code
-```
-
-#### macOS (Homebrew)
-
-```bash
-brew install --cask t3-code
-```
-
-#### Debian, Ubuntu (`.deb`)
-
-Download the `.deb` from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), then:
-
-```bash
-sudo apt install ./T3-Code-*.deb
-```
-
-#### Arch Linux (AUR)
-
-Stable:
-
-```bash
-yay -S t3code-bin
-```
-
-Nightly:
-
-```bash
-yay -S t3code-nightly-bin
-```
-
-The AUR packaging is maintained in this repository under [`packaging/aur`](./packaging/aur).
-
-#### Nix (nixpkgs)
-
-```bash
-nix profile add github:NixOS/nixpkgs/nixos-unstable#t3code
-```
-
-The package is maintained in [nixpkgs](https://github.com/NixOS/nixpkgs/tree/nixos-unstable/pkgs/by-name/t3/t3code)
-and includes the desktop app (`t3code-desktop`) and the `t3` command.
-See [Nix installation](./docs/user/install.md#nix-nixpkgs) for NixOS configuration and updates.
-
-## Some notes
-
-We are very very early in this project. Expect bugs.
-
-We are (mostly) not accepting contributions yet. Small fixes may be considered. Big features will not be.
-
-## Documentation
-
-Full docs live in [docs/](./docs). There's no docs site yet.
-
-- [FAQ](./docs/user/faq.md)
-- [Install and first run](./docs/user/install.md)
-- [Permission modes](./docs/user/permission-modes.md)
-- [Keyboard shortcuts](./docs/user/keybindings.md)
-- [Project settings](./docs/user/project-settings.md)
-- [Appearance preferences](./docs/user/appearance.md)
-- [Remote access from a phone or another machine](./docs/user/remote-access.md)
-- [Connect Claude Code, Codex, ChatGPT and other agents over MCP](./docs/user/outside-agents.md)
-- [Keeping app and server in sync](./docs/user/updating.md)
-- [Source control integrations](./docs/user/source-control.md)
-- Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
-- [Run T3 Code as a background service](./docs/user/background-service.md)
-
-Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md).
-
-## If you REALLY want to contribute still.... read this first
-
-### Install `vp`
-
-T3 Code uses Vite+ so you'll need to install the global `vp` command-line tool.
-
-#### macOS / Linux
-
-```bash
-curl -fsSL https://vite.plus | bash
-```
-
-#### Windows
-
-```bash
-irm https://vite.plus/ps1 | iex
-```
-
-Checkout their getting started guide for more information: https://viteplus.dev/guide/
-
-### Install dependencies
-
-```bash
+```sh
 vp i
+vp run dist:desktop:linux
 ```
 
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before reporting a bug or opening a PR.
+The AppImage is written to `release/`. It does not auto-update; rebuild to update.
 
-Have a feature request? Start an [Ideas discussion](https://github.com/pingdotgg/t3code/discussions/categories/ideas).
-
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+See [Local models](./docs/user/local-models.md) for setting up servers and providers.

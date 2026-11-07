@@ -1,4 +1,6 @@
 import {
+  InferenceDiscoveryInput,
+  InferenceDiscoveryResult,
   InferenceServerId,
   InferenceServerSnapshot,
   InferenceThreadLastRequest,
@@ -508,6 +510,7 @@ export const WS_METHODS = {
   serverGetNpmRelease: "server.getNpmRelease",
   serverRefreshProviders: "server.refreshProviders",
   serverRefreshInferenceServers: "server.refreshInferenceServers",
+  serverDiscoverInferenceServers: "server.discoverInferenceServers",
   serverGetInferenceUsage: "server.getInferenceUsage",
   serverGetThreadInferenceRequest: "server.getThreadInferenceRequest",
   serverUpdateProvider: "server.updateProvider",
@@ -665,6 +668,12 @@ const WsServerRefreshInferenceServersRpc = Rpc.make(WS_METHODS.serverRefreshInfe
   payload: Schema.Struct({ id: Schema.optional(InferenceServerId) }),
   success: Schema.Struct({ inferenceServers: Schema.Array(InferenceServerSnapshot) }),
   error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+const WsServerDiscoverInferenceServersRpc = Rpc.make(WS_METHODS.serverDiscoverInferenceServers, {
+  payload: InferenceDiscoveryInput,
+  success: InferenceDiscoveryResult,
+  error: Schema.Union([EnvironmentAuthorizationError]),
 });
 
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
@@ -2033,6 +2042,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
   WsServerRefreshInferenceServersRpc,
+  WsServerDiscoverInferenceServersRpc,
   WsServerGetInferenceUsageRpc,
   WsServerGetThreadInferenceRequestRpc,
   WsServerUpdateProviderRpc,

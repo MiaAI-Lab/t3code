@@ -1450,6 +1450,15 @@ export function createServerEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) => JSON.stringify([environmentId, input.id ?? null]),
       },
     }),
+    discoverInferenceServers: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:discover-inference-servers",
+      tag: WS_METHODS.serverDiscoverInferenceServers,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.host ?? null, input.baseUrl ?? null]),
+      },
+    }),
     getInferenceUsage: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:inference-usage",
       tag: WS_METHODS.serverGetInferenceUsage,

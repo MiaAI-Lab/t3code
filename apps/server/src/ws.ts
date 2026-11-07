@@ -276,6 +276,7 @@ import { collectLocalUsageModels } from "@t3tools/shared/usageMerge";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import * as AgentSessionImporter from "./project/AgentSessionImporter.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
+import * as InferenceDiscovery from "./inference/InferenceDiscovery.ts";
 import * as InferenceServerRegistry from "./inference/InferenceServerRegistry.ts";
 import * as InferenceRequests from "./persistence/InferenceRequests.ts";
 import { requestUrl } from "./requestUrl.ts";
@@ -1481,6 +1482,7 @@ export const layerWsRpc = (
       const usage = yield* UsageService.UsageService;
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
       const inferenceServers = yield* InferenceServerRegistry.InferenceServerRegistry;
+      const inferenceDiscovery = yield* InferenceDiscovery.InferenceDiscovery;
       const inferenceRequests = yield* InferenceRequests.InferenceRequestLog;
       const worktreeSetupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
       const projectCloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
@@ -2490,6 +2492,7 @@ export const layerWsRpc = (
           inferenceServers
             .refresh(input.id)
             .pipe(Effect.map((snapshots) => ({ inferenceServers: snapshots }))),
+        [WS_METHODS.serverDiscoverInferenceServers]: (input) => inferenceDiscovery.discover(input),
         [WS_METHODS.serverRefreshProviders]:
           /* Request instrumentation already owns the span; keep this helper in that context. */
           Effect.fnUntraced(function* (input) {

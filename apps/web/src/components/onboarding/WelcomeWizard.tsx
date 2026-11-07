@@ -30,6 +30,7 @@ import {
   CheckIcon,
   ChevronRightIcon,
   CloudIcon,
+  CpuIcon,
   LinkIcon,
   MonitorIcon,
   TerminalIcon,
@@ -84,6 +85,7 @@ import { connectPairing } from "../../connection/onboarding";
 import { getProviderSummary } from "../settings/providerStatus";
 import { providerClients } from "../settings/providerDriverMeta";
 import { ChatGptWelcomeCoordinator } from "../settings/ChatGptWelcomeCoordinator";
+import { UseLocalModelDialog } from "../settings/UseLocalModelDialog";
 import { AddManagedCodexAccountDialog, CodexSetupSection } from "../settings/CodexSetupSection";
 import { readCodexSetupMode } from "../settings/CodexSetupSection.logic";
 import { buildProviderInstanceUpdatePatch } from "../settings/SettingsPanels.logic";
@@ -731,6 +733,10 @@ function ConnectedAgentsStep({
     autoStart: boolean;
   } | null>(null);
   const canOperateTerminal = useEnvironmentScope(environmentId, AuthTerminalOperateScope);
+  const canDiscoverLocalModels = useAtomValue(
+    serverEnvironment.discoverInferenceServers.permissionAtom(environmentId),
+  );
+  const [localSetupOpen, setLocalSetupOpen] = useState(false);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- asks the environment to refresh its provider list when the environment changes
   useEffect(() => {
@@ -770,6 +776,28 @@ function ConnectedAgentsStep({
   return (
     <section>
       <h2 className="mb-2 text-sm font-medium">{machineLabel}</h2>
+      {canDiscoverLocalModels ? (
+        <div className="mb-3 flex items-center gap-3 rounded-lg border border-success/32 bg-success/4 p-3">
+          <CpuIcon className="size-4 shrink-0 text-success" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">Run models on your own hardware</p>
+            <p className="text-xs text-muted-foreground">
+              Find Ollama, LM Studio, llama.cpp, vLLM, SGLang, or TensorFold on {machineLabel} and
+              use it for new threads. Cloud agents below stay available.
+            </p>
+          </div>
+          <Button size="sm" onClick={() => setLocalSetupOpen(true)}>
+            Find local models
+          </Button>
+        </div>
+      ) : null}
+      {localSetupOpen ? (
+        <UseLocalModelDialog
+          environmentId={environmentId}
+          machineLabel={machineLabel}
+          onClose={() => setLocalSetupOpen(false)}
+        />
+      ) : null}
       {!canOperateTerminal ? (
         <p className="mb-2 text-sm text-muted-foreground">
           This connection cannot control terminals.

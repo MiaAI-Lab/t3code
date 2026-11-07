@@ -10,7 +10,7 @@ import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import * as Duration from "effect/Duration";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { PlusIcon } from "lucide-react";
+import { PlusIcon, SearchIcon } from "lucide-react";
 import { useState, useSyncExternalStore } from "react";
 
 import {
@@ -38,6 +38,7 @@ import { Button } from "../ui/button";
 import { RefreshIcon } from "../ui/refresh-icon";
 import { Switch } from "../ui/switch";
 import { InferenceServerDialog } from "./InferenceServerDialog";
+import { UseLocalModelDialog } from "./UseLocalModelDialog";
 import {
   describeInferenceModelContext,
   describeInferencePromptCache,
@@ -71,7 +72,12 @@ const STATUS_BADGE_VARIANTS = {
 const NO_SNAPSHOTS: ReadonlyArray<InferenceServerSnapshot> = [];
 const USAGE_WINDOW = "24h";
 
-export function InferenceSettingsPanel() {
+export function InferenceSettingsPanel({
+  openLocalSetup = false,
+}: {
+  /** Opens "Use a local model" on arrival, as links from elsewhere ask. */
+  readonly openLocalSetup?: boolean;
+}) {
   const { scope, environment } = useSettingsScope();
   return (
     <SettingsPageContainer>
@@ -80,6 +86,7 @@ export function InferenceSettingsPanel() {
           key={environment.environmentId}
           environment={environment}
           projectScoped={scope.kind === "project" || scope.kind === "checkout"}
+          openLocalSetup={openLocalSetup}
         />
       ) : (
         <SettingsSection {...searchableSetting("inference-servers")}>
@@ -96,9 +103,11 @@ export function InferenceSettingsPanel() {
 function EnvironmentInferenceServers({
   environment,
   projectScoped,
+  openLocalSetup,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly projectScoped: boolean;
+  readonly openLocalSetup: boolean;
 }) {
   const environmentId = environment.environmentId;
   const sessionState = useEnvironmentSessionState(environmentId);
@@ -133,6 +142,10 @@ function EnvironmentInferenceServers({
     label: "refresh inference servers",
   });
   const [refreshing, setRefreshing] = useState(false);
+  const canDiscover = useAtomValue(
+    serverEnvironment.discoverInferenceServers.permissionAtom(environmentId),
+  );
+  const [localSetupOpen, setLocalSetupOpen] = useState(openLocalSetup);
   const [dialog, setDialog] = useState<
     null | { readonly mode: "add" } | { readonly mode: "edit"; readonly id: InferenceServerId }
   >(null);
@@ -174,6 +187,12 @@ function EnvironmentInferenceServers({
                 Add server
               </Button>
             ) : null}
+            {!readOnly && canDiscover ? (
+              <Button size="xs" onClick={() => setLocalSetupOpen(true)}>
+                <SearchIcon className="size-3" aria-hidden />
+                Use a local model
+              </Button>
+            ) : null}
           </div>
         }
       >
@@ -183,7 +202,17 @@ function EnvironmentInferenceServers({
           </p>
         ) : null}
         {entries.length === 0 ? (
-          <SettingsRow title="No inference servers registered." description={EMPTY_STATE} />
+          <SettingsRow
+            title="No model servers yet."
+            description={EMPTY_STATE}
+            control={
+              !readOnly && canDiscover ? (
+                <Button size="sm" onClick={() => setLocalSetupOpen(true)}>
+                  Find local models
+                </Button>
+              ) : null
+            }
+          />
         ) : (
           entries.map(([id, config]) => (
             <InferenceServerRow
@@ -207,6 +236,13 @@ function EnvironmentInferenceServers({
           ))
         )}
       </SettingsSection>
+      {localSetupOpen && !readOnly ? (
+        <UseLocalModelDialog
+          environmentId={environmentId}
+          machineLabel={environment.label}
+          onClose={() => setLocalSetupOpen(false)}
+        />
+      ) : null}
       {dialog !== null && !readOnly && (dialog.mode === "add" || editing !== undefined) ? (
         <InferenceServerDialog
           onClose={() => setDialog(null)}

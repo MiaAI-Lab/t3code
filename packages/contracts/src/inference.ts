@@ -93,6 +93,34 @@ export const InferenceServerSnapshot = Schema.Struct({
 });
 export type InferenceServerSnapshot = typeof InferenceServerSnapshot.Type;
 
+/** A model server found on demand; nothing is saved until the user picks it. */
+export const InferenceDiscoveredServer = Schema.Struct({
+  baseUrl: TrimmedNonEmptyString,
+  /** `needs-key`: it answered but wants an API key before listing models. */
+  status: Schema.Literals(["ready", "needs-key"]),
+  engine: Schema.optional(TrimmedNonEmptyString),
+  models: Schema.Array(InferenceServerModel),
+  apiProtocols: Schema.optional(Schema.Array(InferenceApiProtocol)),
+  /** The registered server already at this address. */
+  registeredServerId: Schema.optional(InferenceServerId),
+});
+export type InferenceDiscoveredServer = typeof InferenceDiscoveredServer.Type;
+
+export const InferenceDiscoveryInput = Schema.Struct({
+  /** Search only this host, as repairing one server does. */
+  host: Schema.optional(TrimmedNonEmptyString),
+  /** An address the user typed, checked as well. */
+  baseUrl: Schema.optional(TrimmedNonEmptyString),
+});
+export type InferenceDiscoveryInput = typeof InferenceDiscoveryInput.Type;
+
+export const InferenceDiscoveryResult = Schema.Struct({
+  servers: Schema.Array(InferenceDiscoveredServer),
+  /** Whether the environment's own listening ports were searched, not just well-known ones. */
+  searchedListeningPorts: Schema.Boolean,
+});
+export type InferenceDiscoveryResult = typeof InferenceDiscoveryResult.Type;
+
 const Distribution = Schema.Struct({
   n: NonNegativeInt,
   p50: Schema.NullOr(Schema.Number),

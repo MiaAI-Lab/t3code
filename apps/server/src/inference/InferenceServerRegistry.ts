@@ -133,6 +133,17 @@ const ENGINE_BY_OWNER: Readonly<Record<string, string>> = {
   llamacpp: "llama.cpp",
 };
 
+/** An OpenAI-format model list and the engine its owner names; undefined when the body is not one. */
+export function readModelList(body: string) {
+  const list = decodeModelList(body);
+  if (list._tag === "None") return undefined;
+  const owner = list.value.data.find(isRecord)?.owned_by;
+  return {
+    models: list.value.data.flatMap((raw) => readModel(raw) ?? []),
+    engine: typeof owner === "string" ? ENGINE_BY_OWNER[owner] : undefined,
+  };
+}
+
 const METRICS = [
   {
     engine: "TensorFold",
@@ -256,7 +267,7 @@ export function servedContextWindowForModel(input: {
   return model.servedContextWindow === undefined ? {} : { window: model.servedContextWindow };
 }
 
-const PROTOCOL_PATHS: ReadonlyArray<readonly [InferenceApiProtocol, string]> = [
+export const PROTOCOL_PATHS: ReadonlyArray<readonly [InferenceApiProtocol, string]> = [
   ["chat-completions", "chat/completions"],
   ["completions", "completions"],
   ["responses", "responses"],
@@ -400,8 +411,8 @@ export const make = Effect.gen(function* () {
         message: `The server answered ${listed.status} when listing models.`,
       } as const;
     }
-    const list = decodeModelList(listed.body);
-    if (list._tag === "None") {
+    const list = readModelList(listed.body);
+    if (list === undefined) {
       return {
         ...base,
         status: "error",
@@ -409,9 +420,7 @@ export const make = Effect.gen(function* () {
         message: "The server's model list is not in the OpenAI format.",
       } as const;
     }
-    const models = list.value.data.flatMap((raw) => readModel(raw) ?? []);
-    const owner = list.value.data.find(isRecord)?.owned_by;
-    const ownerEngine = typeof owner === "string" ? ENGINE_BY_OWNER[owner] : undefined;
+    const { models, engine: ownerEngine } = list;
 
     // Optional: a failure here never downgrades the model list above.
     const [health, metricsText, slots, protocols] = yield* Effect.all(

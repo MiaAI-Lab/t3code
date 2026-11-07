@@ -117,6 +117,7 @@ import * as InferenceAdmission from "./inference/InferenceAdmission.ts";
 import * as InferenceGateway from "./inference/InferenceGateway.ts";
 import * as InferenceRouting from "./inference/InferenceRouting.ts";
 import * as InferenceGatewayAccess from "./inference/InferenceGatewayAccess.ts";
+import * as InferenceDiscovery from "./inference/InferenceDiscovery.ts";
 import * as InferenceServerRegistry from "./inference/InferenceServerRegistry.ts";
 import * as InferenceRequests from "./persistence/InferenceRequests.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
@@ -699,6 +700,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.provideMerge(
     InferenceGatewayAccess.layer.pipe(Layer.provideMerge(InferenceServerRegistry.layer)),
   ),
+  Layer.provideMerge(InferenceDiscovery.layer),
   // Provider hydration builds the Claude runner, which reports agents to the same scanner the
   // terminal and preview layers share.
   Layer.provideMerge(layerPortScanner),

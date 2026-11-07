@@ -196,11 +196,13 @@ function ModelPickerProviderNotices({
   setupEntries,
   updateRequiredNotices,
   emptyLabel,
+  offerLocalSetup,
   onRequestClose,
   onOpenProviderSetup,
 }: {
   setupEntries: ReadonlyArray<ProviderInstanceEntry>;
   emptyLabel: string;
+  offerLocalSetup: boolean;
   updateRequiredNotices: ReadonlyArray<{ instanceId: ProviderInstanceId; notice: string }>;
   onRequestClose: (() => void) | undefined;
   onOpenProviderSetup: ((instanceId: ProviderInstanceId) => void) | undefined;
@@ -230,6 +232,19 @@ function ModelPickerProviderNotices({
       ) : (
         <ComboboxEmpty className="empty:h-0">{emptyLabel}</ComboboxEmpty>
       )}
+      {offerLocalSetup ? (
+        <p className="shrink-0 border-t border-border/70 px-3 py-2 text-xs leading-snug text-muted-foreground">
+          No model runs on your own hardware yet.{" "}
+          <InlineButton
+            onClick={() => {
+              onRequestClose?.();
+              void navigate({ to: "/settings/inference", search: { setup: "local" } });
+            }}
+          >
+            Use a local model
+          </InlineButton>
+        </p>
+      ) : null}
       {updateRequiredNotices.map(({ instanceId, notice }) => (
         <p
           key={instanceId}
@@ -1067,6 +1082,9 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
             />
             <ModelPickerProviderNotices
               setupEntries={providerSetupEntries}
+              offerLocalSetup={
+                !props.instanceEntries.some((entry) => entry.snapshot.inference === "local")
+              }
               updateRequiredNotices={updateRequiredNotices}
               emptyLabel={
                 selectedInstanceId === "favorites" && !isSearching

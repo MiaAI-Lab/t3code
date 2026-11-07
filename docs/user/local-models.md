@@ -9,6 +9,19 @@ The inference server must be reachable from the environment's machine. `localhos
 means the machine running the T3 Code server, even when you are connected from a
 phone or another computer.
 
+## Use a local model
+
+The quickest start is **Use a local model**: on first run under **Agents**, in **Settings →
+Inference**, from the model picker, or from the command palette. T3 Code looks for model
+servers on the environment's machine (the usual ports for Ollama, LM Studio, llama.cpp, vLLM and
+SGLang, and on Linux every port the machine listens on) and on hosts you already registered. Pick
+a model and an agent, and it registers the server, links the agent to it, and makes that model
+the default for new threads. Running it again reuses what it set up before.
+
+The search never sends a saved API key. A server that wants a key shows as **Needs an API key**;
+add it below with its key. A server on another machine is found only on its usual ports; enter
+its address if it uses another one.
+
 ## Register your inference servers
 
 Open **Settings → Inference** and add each model server with **Add server**: its **Base URL**

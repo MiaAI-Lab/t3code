@@ -164,100 +164,6 @@ export function AppearanceSettingsPanel() {
 
       <SettingsSection id="appearance-interface" title="Interface">
         <SettingsRow
-          {...searchableSetting("setting-appearance-contrast")}
-          description="Adjust the contrast of colors and borders across the interface."
-          resetAction={
-            settings.appearanceContrast !== DEFAULT_UNIFIED_SETTINGS.appearanceContrast ? (
-              <SettingResetButton
-                label="contrast"
-                onClick={() =>
-                  updateSettings({
-                    appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <div className="flex w-full items-center gap-3 sm:w-52">
-              <output
-                className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
-                htmlFor="appearance-contrast"
-              >
-                {settings.appearanceContrast}%
-              </output>
-              <input
-                aria-label="Contrast"
-                className="settings-slider min-w-0 flex-1"
-                id="appearance-contrast"
-                max={MAX_APPEARANCE_CONTRAST}
-                min={MIN_APPEARANCE_CONTRAST}
-                onChange={(event) => {
-                  const appearanceContrast = Number(event.currentTarget.value);
-                  if (
-                    Number.isInteger(appearanceContrast) &&
-                    appearanceContrast >= MIN_APPEARANCE_CONTRAST &&
-                    appearanceContrast <= MAX_APPEARANCE_CONTRAST
-                  ) {
-                    updateSettings({ appearanceContrast });
-                  }
-                }}
-                step={5}
-                style={appearanceContrastSliderStyle}
-                type="range"
-                value={settings.appearanceContrast}
-              />
-            </div>
-          }
-        />
-
-        <SettingsRow
-          {...searchableSetting("setting-glass-opacity")}
-          description="Higher values make menus, dialogs, and the composer more solid."
-          resetAction={
-            settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? (
-              <SettingResetButton
-                label="glass opacity"
-                onClick={() =>
-                  updateSettings({ glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity })
-                }
-              />
-            ) : null
-          }
-          control={
-            <div className="flex w-full items-center gap-3 sm:w-52">
-              <output
-                className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
-                htmlFor="glass-opacity"
-              >
-                {settings.glassOpacity}%
-              </output>
-              <input
-                aria-label="Glass opacity"
-                className="settings-slider min-w-0 flex-1"
-                id="glass-opacity"
-                max={MAX_GLASS_OPACITY}
-                min={MIN_GLASS_OPACITY}
-                onChange={(event) => {
-                  const glassOpacity = Number(event.currentTarget.value);
-                  if (
-                    Number.isInteger(glassOpacity) &&
-                    glassOpacity >= MIN_GLASS_OPACITY &&
-                    glassOpacity <= MAX_GLASS_OPACITY
-                  ) {
-                    updateSettings({ glassOpacity });
-                  }
-                }}
-                step={5}
-                style={glassOpacitySliderStyle}
-                type="range"
-                value={settings.glassOpacity}
-              />
-            </div>
-          }
-        />
-
-        <SettingsRow
           {...searchableSetting("chat-width")}
           description="Set how wide messages and the composer can grow on large screens."
           resetAction={
@@ -290,66 +196,12 @@ export function AppearanceSettingsPanel() {
           }
         />
         <ThreadDetailsItemsRow />
-        <SettingsRow
-          {...searchableSetting("effort-display")}
-          description="Show reasoning effort in the composer as its name, such as High, or as bars."
-          resetAction={
-            settings.effortDisplay !== DEFAULT_UNIFIED_SETTINGS.effortDisplay ? (
-              <SettingResetButton
-                label="effort display"
-                onClick={() =>
-                  updateSettings({ effortDisplay: DEFAULT_UNIFIED_SETTINGS.effortDisplay })
-                }
-              />
-            ) : null
-          }
-          control={
-            <div className="w-full sm:w-40">
-              <Select
-                value={settings.effortDisplay}
-                onValueChange={(value) => {
-                  if (value === "bars" || value === "label")
-                    updateSettings({ effortDisplay: value });
-                }}
-              >
-                <SelectTrigger size="sm" className="w-full min-w-0" aria-label="Effort display">
-                  <SelectValue>{EFFORT_DISPLAY_LABELS[settings.effortDisplay]}</SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
-                  <SelectItem value="label">Word (default)</SelectItem>
-                  <SelectItem value="bars">Bars</SelectItem>
-                </SelectPopup>
-              </Select>
-            </div>
-          }
-        />
-        <SettingsRow
-          {...searchableSetting("math-rendering")}
-          description="Typeset LaTeX math, such as $x^2$ or \[x^2\], in messages and Markdown previews. The composer keeps TeX source editable."
-          resetAction={
-            settings.mathRenderingEnabled !== DEFAULT_UNIFIED_SETTINGS.mathRenderingEnabled ? (
-              <SettingResetButton
-                label="math rendering"
-                onClick={() =>
-                  updateSettings({
-                    mathRenderingEnabled: DEFAULT_UNIFIED_SETTINGS.mathRenderingEnabled,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.mathRenderingEnabled}
-              onCheckedChange={(checked) =>
-                updateSettings({ mathRenderingEnabled: Boolean(checked) })
-              }
-              aria-label="Render math"
-            />
-          }
-        />
         <AdvancedSettings
           targetIds={[
+            searchableSetting("setting-appearance-contrast").id,
+            searchableSetting("setting-glass-opacity").id,
+            searchableSetting("effort-display").id,
+            searchableSetting("math-rendering").id,
             searchableSetting("panel-animations").id,
             searchableSetting("environment-identification").id,
             // Environment identification's search result lands on this section.
@@ -357,6 +209,156 @@ export function AppearanceSettingsPanel() {
             searchableSetting("composer-context").id,
           ]}
         >
+          <SettingsRow
+            {...searchableSetting("setting-appearance-contrast")}
+            description="Adjust the contrast of colors and borders across the interface."
+            resetAction={
+              settings.appearanceContrast !== DEFAULT_UNIFIED_SETTINGS.appearanceContrast ? (
+                <SettingResetButton
+                  label="contrast"
+                  onClick={() =>
+                    updateSettings({
+                      appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <div className="flex w-full items-center gap-3 sm:w-52">
+                <output
+                  className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
+                  htmlFor="appearance-contrast"
+                >
+                  {settings.appearanceContrast}%
+                </output>
+                <input
+                  aria-label="Contrast"
+                  className="settings-slider min-w-0 flex-1"
+                  id="appearance-contrast"
+                  max={MAX_APPEARANCE_CONTRAST}
+                  min={MIN_APPEARANCE_CONTRAST}
+                  onChange={(event) => {
+                    const appearanceContrast = Number(event.currentTarget.value);
+                    if (
+                      Number.isInteger(appearanceContrast) &&
+                      appearanceContrast >= MIN_APPEARANCE_CONTRAST &&
+                      appearanceContrast <= MAX_APPEARANCE_CONTRAST
+                    ) {
+                      updateSettings({ appearanceContrast });
+                    }
+                  }}
+                  step={5}
+                  style={appearanceContrastSliderStyle}
+                  type="range"
+                  value={settings.appearanceContrast}
+                />
+              </div>
+            }
+          />
+          <SettingsRow
+            {...searchableSetting("setting-glass-opacity")}
+            description="Higher values make menus, dialogs, and the composer more solid."
+            resetAction={
+              settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? (
+                <SettingResetButton
+                  label="glass opacity"
+                  onClick={() =>
+                    updateSettings({ glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <div className="flex w-full items-center gap-3 sm:w-52">
+                <output
+                  className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
+                  htmlFor="glass-opacity"
+                >
+                  {settings.glassOpacity}%
+                </output>
+                <input
+                  aria-label="Glass opacity"
+                  className="settings-slider min-w-0 flex-1"
+                  id="glass-opacity"
+                  max={MAX_GLASS_OPACITY}
+                  min={MIN_GLASS_OPACITY}
+                  onChange={(event) => {
+                    const glassOpacity = Number(event.currentTarget.value);
+                    if (
+                      Number.isInteger(glassOpacity) &&
+                      glassOpacity >= MIN_GLASS_OPACITY &&
+                      glassOpacity <= MAX_GLASS_OPACITY
+                    ) {
+                      updateSettings({ glassOpacity });
+                    }
+                  }}
+                  step={5}
+                  style={glassOpacitySliderStyle}
+                  type="range"
+                  value={settings.glassOpacity}
+                />
+              </div>
+            }
+          />
+          <SettingsRow
+            {...searchableSetting("effort-display")}
+            description="Show reasoning effort in the composer as its name, such as High, or as bars."
+            resetAction={
+              settings.effortDisplay !== DEFAULT_UNIFIED_SETTINGS.effortDisplay ? (
+                <SettingResetButton
+                  label="effort display"
+                  onClick={() =>
+                    updateSettings({ effortDisplay: DEFAULT_UNIFIED_SETTINGS.effortDisplay })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <div className="w-full sm:w-40">
+                <Select
+                  value={settings.effortDisplay}
+                  onValueChange={(value) => {
+                    if (value === "bars" || value === "label")
+                      updateSettings({ effortDisplay: value });
+                  }}
+                >
+                  <SelectTrigger size="sm" className="w-full min-w-0" aria-label="Effort display">
+                    <SelectValue>{EFFORT_DISPLAY_LABELS[settings.effortDisplay]}</SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    <SelectItem value="label">Word (default)</SelectItem>
+                    <SelectItem value="bars">Bars</SelectItem>
+                  </SelectPopup>
+                </Select>
+              </div>
+            }
+          />
+          <SettingsRow
+            {...searchableSetting("math-rendering")}
+            description="Typeset LaTeX math, such as $x^2$ or \[x^2\], in messages and Markdown previews. The composer keeps TeX source editable."
+            resetAction={
+              settings.mathRenderingEnabled !== DEFAULT_UNIFIED_SETTINGS.mathRenderingEnabled ? (
+                <SettingResetButton
+                  label="math rendering"
+                  onClick={() =>
+                    updateSettings({
+                      mathRenderingEnabled: DEFAULT_UNIFIED_SETTINGS.mathRenderingEnabled,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                checked={settings.mathRenderingEnabled}
+                onCheckedChange={(checked) =>
+                  updateSettings({ mathRenderingEnabled: Boolean(checked) })
+                }
+                aria-label="Render math"
+              />
+            }
+          />
           <SettingsRow
             {...searchableSetting("panel-animations")}
             description="Set how fast panels open and close."

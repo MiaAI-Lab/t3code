@@ -2,13 +2,16 @@ import {
   defaultInstanceIdForDriver,
   type EnvironmentId,
   type InferenceServerSnapshot,
-  isLocalProviderInstance,
   type InferenceServerStatus,
   PROVIDER_DISPLAY_NAMES,
   type ProviderDriverKind,
   type ServerProvider,
-  type ServerSettings,
 } from "@t3tools/contracts";
+import {
+  collectLocalUsageModels,
+  isLocalUsageModel,
+  type ModelTotals,
+} from "@t3tools/shared/usageMerge";
 import { Atom } from "effect/reactivity";
 
 function humanizeSlug(slug: string): string {
@@ -124,67 +127,20 @@ export function providerInstanceInferenceLabel(
   return snapshot.inference === "local" ? `${displayName} · Local` : displayName;
 }
 
-/** Models that run on the user's own servers, and those the user priced in Usage. */
-export interface LocalUsageModels {
-  readonly local: ReadonlySet<string>;
-  readonly customPriced: ReadonlySet<string>;
-}
-
-// Harnesses log either "model" or "provider/model", so both forms match.
-function usageModelKeys(model: string): ReadonlyArray<string> {
-  const key = model.trim().toLowerCase();
-  const slash = key.lastIndexOf("/");
-  return slash < 0 ? [key] : [key, key.slice(slash + 1)];
-}
-
-/** Served by an enabled inference server, or offered by a provider instance that is local. */
-export function collectLocalUsageModels(
-  environments: ReadonlyArray<{
-    readonly providers: ReadonlyArray<
-      Pick<ServerProvider, "inference" | "inferenceServerId" | "models">
-    > | null;
-    readonly inferenceServers: ReadonlyArray<
-      Pick<InferenceServerSnapshot, "id" | "enabled" | "models">
-    > | null;
-    readonly priceOverrides: Readonly<Record<string, unknown>> | undefined;
-    readonly modelAliases: Readonly<Record<string, unknown>> | undefined;
-  }>,
-): LocalUsageModels {
-  const local = new Set<string>();
-  const customPriced = new Set<string>();
-  for (const environment of environments) {
-    const servers = environment.inferenceServers ?? [];
-    const enabled = Object.fromEntries(servers.map((server) => [server.id, server]));
-    for (const server of servers) {
-      if (!server.enabled) continue;
-      for (const model of server.models) usageModelKeys(model.id).forEach((key) => local.add(key));
-    }
-    for (const provider of environment.providers ?? []) {
-      if (!isLocalProviderInstance(provider, enabled)) continue;
-      for (const model of provider.models) {
-        usageModelKeys(model.slug).forEach((key) => local.add(key));
-      }
-    }
-    for (const model of [
-      ...Object.keys(environment.priceOverrides ?? {}),
-      ...Object.keys(environment.modelAliases ?? {}),
-    ]) {
-      customPriced.add(model.trim());
-    }
-  }
-  return { local, customPriced };
-}
+/** Model keys that run on the user's own servers, from collectLocalUsageModels. */
+export type LocalUsageModels = ReadonlySet<string>;
 
 /**
- * How Usage shows a model's cost: "local" for a local model with no price the user set, "estimate"
- * for one they priced (what the same tokens would cost from an API), null for any other model.
+ * How Usage shows a model's cost: "estimate" when the server priced local runs from a price the
+ * user set (what the same tokens would cost from an API), "local" for other local models, null
+ * for any other model.
  */
 export function localUsageModelCost(
-  model: string,
-  models: LocalUsageModels,
+  model: Pick<ModelTotals, "model" | "estimatedCostUsd">,
+  localModels: LocalUsageModels,
 ): "local" | "estimate" | null {
-  if (!usageModelKeys(model).some((key) => models.local.has(key))) return null;
-  return models.customPriced.has(model.trim()) ? "estimate" : "local";
+  if (model.estimatedCostUsd > 0) return "estimate";
+  return isLocalUsageModel(model.model, localModels) ? "local" : null;
 }
 
 /** Local models across the environments (ids as a JSON array), for the Usage page of each client. */
@@ -195,26 +151,19 @@ export function makeLocalUsageModelsAtom(server: {
   readonly inferenceServersValueAtom: (
     id: EnvironmentId,
   ) => Atom.Atom<ReadonlyArray<InferenceServerSnapshot> | null>;
-  readonly settingsValueAtom: (
-    id: EnvironmentId,
-  ) => Atom.Atom<
-    Pick<ServerSettings, "usagePriceOverrides" | "usageModelAliases"> | null | undefined
-  >;
 }) {
   return Atom.family((idsJson: string) =>
-    Atom.make((get) =>
-      collectLocalUsageModels(
-        (JSON.parse(idsJson) as EnvironmentId[]).map((id) => {
-          const settings = get(server.settingsValueAtom(id));
-          return {
-            providers: get(server.providersValueAtom(id)),
-            inferenceServers: get(server.inferenceServersValueAtom(id)),
-            priceOverrides: settings?.usagePriceOverrides,
-            modelAliases: settings?.usageModelAliases,
-          };
-        }),
-      ),
-    ).pipe(Atom.withLabel(`local-usage-models:${idsJson}`)),
+    Atom.make((get): LocalUsageModels => {
+      const local = new Set<string>();
+      for (const id of JSON.parse(idsJson) as EnvironmentId[]) {
+        collectLocalUsageModels(
+          get(server.providersValueAtom(id)) ?? [],
+          get(server.inferenceServersValueAtom(id)) ?? [],
+          local,
+        );
+      }
+      return local;
+    }).pipe(Atom.withLabel(`local-usage-models:${idsJson}`)),
   );
 }
 

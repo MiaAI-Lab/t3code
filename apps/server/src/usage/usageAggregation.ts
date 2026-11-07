@@ -10,7 +10,8 @@ import type {
 } from "@t3tools/contracts";
 
 import { EMPTY_TOTALS, type UsageRecord } from "@t3tools/provider-core/server/usage";
-import { cacheSavingsUsd, priceUsage, type RateTable } from "./usagePricing.ts";
+import { isLocalUsageModel } from "@t3tools/shared/usageMerge";
+import { cacheSavingsUsd, priceLocalUsage, priceUsage, type RateTable } from "./usagePricing.ts";
 
 // en-CA gives ISO-ordered parts in the requested zone; Date getters are host-local.
 function makeDayFormatter(timeZone: string): (timestampMs: number) => string {
@@ -51,6 +52,7 @@ const HOUR_MS = 60 * 60 * 1000;
 interface MutableBucket {
   totals: { -readonly [K in keyof UsageTokenTotals]: number };
   costUsd: number;
+  estimatedCostUsd: number;
   cacheSavingsUsd: number;
   categoryCostUsd: UsageCategoryCost | null;
   fastCostUsd: number;
@@ -69,6 +71,8 @@ export interface AggregateOptions {
   readonly rates: RateTable;
   readonly priceOverrides?: RateTable;
   readonly modelAliases?: ReadonlyMap<string, string>;
+  /** Model keys from collectLocalUsageModels. */
+  readonly localModels?: ReadonlySet<string>;
   readonly modelFilter?: UsageModelFilter;
   readonly resolution?: UsageResolution;
   readonly sinceTimeMs?: number;
@@ -198,7 +202,17 @@ export class UsageAggregator {
         : Math.floor((record.timestampMs - this.#hourlyWindow.sinceTimeMs) / HOUR_MS);
     const bucket = this.#bucketFor(day, hourIndex, record.provider, record.model, sourcePath ?? "");
 
-    const priced = priceUsage(this.#options.rates, record, this.#options.priceOverrides);
+    const local =
+      this.#options.localModels !== undefined &&
+      isLocalUsageModel(input.model, this.#options.localModels);
+    const priced = local
+      ? priceLocalUsage(
+          this.#options.rates,
+          record,
+          this.#options.priceOverrides,
+          record.model !== input.model,
+        )
+      : priceUsage(this.#options.rates, record, this.#options.priceOverrides);
 
     const totals = bucket.totals;
     totals.uncachedInputTokens += record.totals.uncachedInputTokens;
@@ -207,6 +221,7 @@ export class UsageAggregator {
     totals.outputTokens += record.totals.outputTokens;
     totals.reasoningTokens += record.totals.reasoningTokens;
     bucket.costUsd += priced.costUsd;
+    bucket.estimatedCostUsd += priced.estimatedCostUsd ?? 0;
     if (priced.categoryCostUsd !== null) {
       const sum = bucket.categoryCostUsd;
       const add = priced.categoryCostUsd;
@@ -223,11 +238,13 @@ export class UsageAggregator {
     if (record.speed === "fast") bucket.fastCostUsd += priced.costUsd;
     if (record.speed === "ultrafast") bucket.ultrafastCostUsd += priced.costUsd;
     bucket.speedPremiumUsd += priced.speedPremiumUsd;
-    bucket.cacheSavingsUsd += cacheSavingsUsd(
-      this.#options.rates,
-      record,
-      this.#options.priceOverrides,
-    );
+    if (!local) {
+      bucket.cacheSavingsUsd += cacheSavingsUsd(
+        this.#options.rates,
+        record,
+        this.#options.priceOverrides,
+      );
+    }
     bucket.records += 1;
     if (priced.costSource === "unpriced") bucket.unpricedRecords += 1;
     if (priced.costSource === "providerReported") bucket.providerReportedRecords += 1;
@@ -271,6 +288,7 @@ export class UsageAggregator {
       bucket = {
         totals: { ...EMPTY_TOTALS },
         costUsd: 0,
+        estimatedCostUsd: 0,
         cacheSavingsUsd: 0,
         categoryCostUsd: null,
         fastCostUsd: 0,
@@ -296,6 +314,7 @@ export class UsageAggregator {
       const fastCostUsd = roundUsd(bucket.fastCostUsd);
       const ultrafastCostUsd = roundUsd(bucket.ultrafastCostUsd);
       const speedPremiumUsd = roundUsd(bucket.speedPremiumUsd);
+      const estimatedCostUsd = roundUsd(bucket.estimatedCostUsd);
       buckets.push({
         day: day as UsageDay,
         ...(hourStart === "" ? {} : { hourStart }),
@@ -318,6 +337,7 @@ export class UsageAggregator {
         ...(fastCostUsd === 0 ? {} : { fastCostUsd }),
         ...(ultrafastCostUsd === 0 ? {} : { ultrafastCostUsd }),
         ...(speedPremiumUsd === 0 ? {} : { speedPremiumUsd }),
+        ...(estimatedCostUsd === 0 ? {} : { estimatedCostUsd }),
         costSource: resolveCostSource(bucket),
         records: bucket.records,
         unpricedRecords: bucket.unpricedRecords,

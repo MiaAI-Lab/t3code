@@ -61,17 +61,20 @@ export function UsageModelDialog({
   );
   const providers = [model.provider];
   const presentation = PROVIDER_PRESENTATION[model.provider];
-  const localCost = localUsageModelCost(model.model, localModels);
-  // A local model's cost is shown only as an estimate from a price the user set.
-  const costUnknown = isModelCostUnknown(model) || localCost === "local";
+  const localCost = localUsageModelCost(model, localModels);
+  // Local runs are not cloud spend: their totals and charts show tokens.
+  const costUnknown = localCost !== null || isModelCostUnknown(model);
   const hitRate = cacheHitRate(model);
-  const perMillion = costPerMillionTokens(model);
+  const perMillion = localCost === null ? costPerMillionTokens(model) : null;
   const stats = [
-    localCost === "local"
-      ? { label: "Cost", value: "Local" }
-      : localCost === "estimate" && !costUnknown
-        ? { label: ESTIMATED_API_SPEND_LABEL, value: formatUsd(model.costUsd) }
-        : { label: "Cost", value: costUnknown ? "Unpriced" : formatUsd(model.costUsd) },
+    localCost === "estimate"
+      ? { label: ESTIMATED_API_SPEND_LABEL, value: formatUsd(model.estimatedCostUsd) }
+      : localCost === "local"
+        ? { label: "Cost", value: "Local" }
+        : {
+            label: "Cost",
+            value: costUnknown ? "Unpriced" : formatUsd(model.costUsd),
+          },
     { label: "Tokens", value: formatTokens(model.totalTokens) },
     perMillion === null ? null : { label: "Per 1M tokens", value: formatUsd(perMillion) },
     hitRate === null ? null : { label: "Cache hit", value: formatPercent(hitRate) },

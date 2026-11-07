@@ -52,8 +52,9 @@ writing) for the last day or week: requests, failures, tokens, the share of the 
 from cache, and median and 95th percentile queue wait, time to first token and decode speed. The
 cached share counts only requests whose server reported cache use, and shows `–` when none did.
 Usage opens on **Tokens** when you have an enabled inference server, until you pick a tab
-yourself. Local models show **Local** instead of a price; set a price for one in Usage to see an
-estimated equivalent API spend.
+yourself. Local models show **Local** instead of a price, even when a cloud API sells a model with
+the same name, and never add to the cost total. Set a price for one in Usage to see an estimated
+equivalent API spend on its row.
 
 In a thread, the details panel's **Last request** row shows the most recent request's prompt
 size, cached share and time to first token. Its tooltip names the server that answered,

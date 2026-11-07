@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import { resolveModelAliases, UsageAggregator } from "./usageAggregation.ts";
-import type { RateTable } from "./usagePricing.ts";
+import { createOverrideRateTable, type RateTable } from "./usagePricing.ts";
 import type { UsageRecord } from "@t3tools/provider-core/server/usage";
 
 const rates: RateTable = new Map([
@@ -207,6 +207,26 @@ describe("UsageAggregator", () => {
     expect(result.buckets[0]?.records).toBe(2);
     expect(result.buckets[0]?.costUsd).toBeCloseTo(0.00925, 9);
     expect(result.buckets[0]?.unpricedRecords).toBe(0);
+  });
+  it("keeps local runs out of cost, with a price the user set as an estimate", () => {
+    const aggregator = new UsageAggregator({
+      timeZone: "UTC",
+      sinceDay: "2026-08-01",
+      untilDay: "2026-08-31",
+      rates,
+      priceOverrides: createOverrideRateTable({
+        "rtx/local-coder": { inputCostPerMillionTokens: 1, outputCostPerMillionTokens: 1 },
+      }),
+      localModels: new Set(["claude-fable-5", "local-coder"]),
+    });
+    aggregator.add(record({ reportedCostUsd: 1.25 }));
+    aggregator.add(record({ model: "rtx/local-coder" }));
+    const [named, priced] = aggregator.finish().buckets;
+
+    expect(named).toMatchObject({ model: "claude-fable-5", costUsd: 0, cacheSavingsUsd: 0 });
+    expect(named).not.toHaveProperty("estimatedCostUsd");
+    expect(named?.unpricedRecords).toBe(1);
+    expect(priced).toMatchObject({ costUsd: 0, estimatedCostUsd: 0.00116 });
   });
 });
 

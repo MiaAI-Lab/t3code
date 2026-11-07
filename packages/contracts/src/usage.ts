@@ -63,6 +63,8 @@ export const UsageBucket = Schema.Struct({
   fastCostUsd: Schema.optional(Schema.Number),
   ultrafastCostUsd: Schema.optional(Schema.Number),
   speedPremiumUsd: Schema.optional(Schema.Number),
+  /** Local runs priced by the user, as equivalent API spend; never part of costUsd. */
+  estimatedCostUsd: Schema.optional(Schema.Number),
   costSource: UsageCostSource,
   records: NonNegativeInt,
   unpricedRecords: NonNegativeInt,

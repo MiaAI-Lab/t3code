@@ -967,9 +967,9 @@ function UsageOverview({
                   const key = `${model.provider}:${model.model}`;
                   const value = metric === "tokens" ? model.totalTokens : model.costUsd;
                   const hasBar = value > 0 && breakdownPeak > 0;
-                  const localCost = localUsageModelCost(model.model, localModels);
+                  const localCost = localUsageModelCost(model, localModels);
                   const share =
-                    metric !== "tokens" && localCost === "local"
+                    metric !== "tokens" && localCost !== null
                       ? null
                       : modelShare(model, metric === "tokens" ? "tokens" : "cost");
                   const rowFigures = figureClass(loadingProviders.has(model.provider));
@@ -1004,18 +1004,18 @@ function UsageOverview({
                         ) : null}
                       </td>
                       <td className={cn("py-2.5 pl-6 text-foreground", rowFigures)}>
-                        {localCost === "local" ? (
-                          <span className="text-muted-foreground">Local</span>
-                        ) : isModelCostUnknown(model) ? (
-                          <span className="text-muted-foreground">Unpriced</span>
-                        ) : localCost === "estimate" ? (
+                        {localCost === "estimate" ? (
                           <Tooltip>
                             {/* Above the row button's full-row hit area, so it can be hovered. */}
                             <TooltipTrigger render={<span className="relative" />}>
-                              ~{formatUsd(model.costUsd)}
+                              ~{formatUsd(model.estimatedCostUsd)}
                             </TooltipTrigger>
                             <TooltipPopup>{ESTIMATED_API_SPEND_LABEL}</TooltipPopup>
                           </Tooltip>
+                        ) : localCost === "local" ? (
+                          <span className="text-muted-foreground">Local</span>
+                        ) : isModelCostUnknown(model) ? (
+                          <span className="text-muted-foreground">Unpriced</span>
                         ) : (
                           formatUsd(model.costUsd)
                         )}

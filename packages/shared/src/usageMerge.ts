@@ -1,6 +1,9 @@
 import {
+  isLocalProviderInstance,
   USAGE_MERGE_COMPATIBLE_SINCE,
   type EnvironmentId,
+  type InferenceServerSnapshot,
+  type ServerProvider,
   type UsageBucket,
   type UsageProviderKind,
   type UsageSource,
@@ -8,6 +11,35 @@ import {
   type UsageSummary,
   type UsageTokenTotals,
 } from "@t3tools/contracts";
+
+// Harnesses log either "model" or "provider/model", so both forms match.
+function usageModelKeys(model: string): ReadonlyArray<string> {
+  const key = model.trim().toLowerCase();
+  const slash = key.lastIndexOf("/");
+  return slash < 0 ? [key] : [key, key.slice(slash + 1)];
+}
+
+/** Models served by an enabled inference server, or offered by a provider instance that is local. */
+export function collectLocalUsageModels(
+  providers: ReadonlyArray<Pick<ServerProvider, "inference" | "inferenceServerId" | "models">>,
+  inferenceServers: ReadonlyArray<Pick<InferenceServerSnapshot, "id" | "enabled" | "models">>,
+  into: Set<string> = new Set(),
+): Set<string> {
+  const enabled = Object.fromEntries(inferenceServers.map((server) => [server.id, server]));
+  for (const server of inferenceServers) {
+    if (!server.enabled) continue;
+    for (const model of server.models) usageModelKeys(model.id).forEach((key) => into.add(key));
+  }
+  for (const provider of providers) {
+    if (!isLocalProviderInstance(provider, enabled)) continue;
+    for (const model of provider.models) usageModelKeys(model.slug).forEach((key) => into.add(key));
+  }
+  return into;
+}
+
+export function isLocalUsageModel(model: string, localModels: ReadonlySet<string>): boolean {
+  return usageModelKeys(model).some((key) => localModels.has(key));
+}
 
 export interface EnvironmentUsage {
   readonly environmentId: EnvironmentId;
@@ -29,6 +61,8 @@ export interface ModelTotals {
   readonly model: string;
   readonly provider: UsageProviderKind;
   readonly costUsd: number;
+  /** Equivalent API spend of local runs the user priced; not part of costUsd. */
+  readonly estimatedCostUsd: number;
   readonly totalTokens: number;
   readonly tokens: UsageTokenTotals;
   readonly records: number;
@@ -354,6 +388,7 @@ export function mergeUsage(
     {
       provider: UsageProviderKind;
       costUsd: number;
+      estimatedCostUsd: number;
       totalTokens: number;
       tokens: UsageTokenTotals;
       records: number;
@@ -441,6 +476,7 @@ export function mergeUsage(
       const model = modelAccumulator.get(modelKey) ?? {
         provider: bucket.provider,
         costUsd: 0,
+        estimatedCostUsd: 0,
         totalTokens: 0,
         tokens: {
           uncachedInputTokens: 0,
@@ -454,6 +490,7 @@ export function mergeUsage(
         unpricedTokens: 0,
       };
       model.costUsd += bucket.costUsd;
+      model.estimatedCostUsd += bucket.estimatedCostUsd ?? 0;
       model.totalTokens += tokens;
       model.tokens = {
         uncachedInputTokens: model.tokens.uncachedInputTokens + bucket.totals.uncachedInputTokens,
@@ -523,6 +560,7 @@ export function mergeUsage(
       model: key.slice(key.indexOf(" ") + 1),
       provider: totals.provider,
       costUsd: totals.costUsd,
+      estimatedCostUsd: totals.estimatedCostUsd,
       totalTokens: totals.totalTokens,
       tokens: totals.tokens,
       records: totals.records,

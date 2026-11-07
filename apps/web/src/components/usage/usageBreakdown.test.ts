@@ -12,6 +12,7 @@ const model = (
   model: name,
   provider: "codex",
   costUsd,
+  estimatedCostUsd: 0,
   totalTokens,
   tokens: {
     uncachedInputTokens: totalTokens,

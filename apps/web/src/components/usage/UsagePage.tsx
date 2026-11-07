@@ -83,6 +83,7 @@ import {
 } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { UsageLimitsSection } from "./UsageLimits";
+import { UsageLocalCompute } from "./UsageLocalCompute";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
 import { UsageProviderChart } from "./UsageProviderChart";
 import { SpeedPremium, UsageModelDialog } from "./UsageModelDialog";
@@ -574,6 +575,14 @@ export function UsagePage() {
                 onSelectModel={selectUsageModel}
               />
             )}
+            {!showingLimits && selectedEnvironments.length > 0 ? (
+              <div className="mt-8">
+                <UsageLocalCompute
+                  environments={selectedEnvironments}
+                  initialWindow={isPast24Hours ? "24h" : "7d"}
+                />
+              </div>
+            ) : null}
           </WorkspacePageContainer>
         </ScrollArea>
       </div>

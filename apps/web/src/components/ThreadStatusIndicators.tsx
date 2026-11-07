@@ -51,6 +51,7 @@ import {
 import type { SidebarThreadSummary } from "../types";
 import { formatWorktreePathForDisplay } from "../worktreeCleanup";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import { InferenceWaitStatus } from "./chat/InferenceWaitStatus";
 import {
   PULL_REQUEST_STATE_PRESENTATION,
   PullRequestGlyph,
@@ -605,11 +606,22 @@ export function ThreadWorktreeIndicator({
 
 function ThreadStatusLabel({
   status,
+  threadRef,
   compact = false,
 }: {
   status: ThreadStatusPill;
+  threadRef?: ScopedThreadRef;
   compact?: boolean;
 }) {
+  // Mounted only while the tooltip is open, so idle rows never watch the gateway queue.
+  const tooltip = threadRef ? (
+    <span className="flex flex-col">
+      {status.label}
+      <InferenceWaitStatus threadRef={threadRef} className="text-muted-foreground" />
+    </span>
+  ) : (
+    status.label
+  );
   if (compact) {
     return (
       <Tooltip>
@@ -651,7 +663,7 @@ function ThreadStatusLabel({
         />
         <span className="hidden md:inline">{status.label}</span>
       </TooltipTrigger>
-      <TooltipPopup side="top">{status.label}</TooltipPopup>
+      <TooltipPopup side="top">{tooltip}</TooltipPopup>
     </Tooltip>
   );
 }
@@ -746,7 +758,12 @@ export function ThreadRowLeadingStatus({ thread }: { thread: SidebarThreadSummar
           aria-label={`${changeRequestTerminologyForUrl(pendingLink.url).shortLabel} #${pendingLink.number}, status pending`}
         />
       ) : null}
-      {threadStatus ? <ThreadStatusLabel status={threadStatus} /> : null}
+      {threadStatus ? (
+        <ThreadStatusLabel
+          status={threadStatus}
+          {...(threadStatus.label === "Working" ? { threadRef } : {})}
+        />
+      ) : null}
     </span>
   );
 }

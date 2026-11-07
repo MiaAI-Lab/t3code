@@ -247,6 +247,10 @@
       "types": "./src/state/projects.ts",
       "default": "./src/state/projects.ts"
     },
+    "./state/inference-activity": {
+      "types": "./src/state/inferenceActivity.ts",
+      "default": "./src/state/inferenceActivity.ts"
+    },
     "./state/provider-instance-display": {
       "types": "./src/state/providerInstanceDisplay.ts",
       "default": "./src/state/providerInstanceDisplay.ts"

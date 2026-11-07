@@ -1450,6 +1450,22 @@ export function createServerEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) => JSON.stringify([environmentId, input.id ?? null]),
       },
     }),
+    getInferenceUsage: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:inference-usage",
+      tag: WS_METHODS.serverGetInferenceUsage,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.window]),
+      },
+    }),
+    getThreadInferenceRequest: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:thread-inference-request",
+      tag: WS_METHODS.serverGetThreadInferenceRequest,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.threadId]),
+      },
+    }),
     updateProvider: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:update-provider",
       tag: WS_METHODS.serverUpdateProvider,

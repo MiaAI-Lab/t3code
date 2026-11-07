@@ -37,6 +37,7 @@ import * as InferenceRouting from "./InferenceRouting.ts";
 import { isPreDispatchFailure, PRIMARY_WAIT_MS } from "./InferenceRouting.ts";
 import { parseBaseUrl } from "./InferenceServerRegistry.ts";
 import { makeUsageMeter } from "./inferenceUsage.ts";
+import { flattenNamespaceTools, makeResponseRestorer } from "./responsesNamespaceTools.ts";
 
 const INFERENCE_ROUTE_PREFIX = "/inference";
 
@@ -141,6 +142,7 @@ function prepareBody(protocol: InferenceApiProtocol, raw: Uint8Array) {
     staticPrefix: undefined,
     previousResponseId: undefined,
     contextTokens: promptEstimate,
+    namespaces: undefined,
   };
   let parsed: unknown;
   try {
@@ -170,7 +172,15 @@ function prepareBody(protocol: InferenceApiProtocol, raw: Uint8Array) {
         tokenCount(parsed.max_completion_tokens),
         tokenCount(parsed.max_output_tokens),
       ),
+    namespaces: undefined,
   };
+  if (protocol === "responses") {
+    const flat = flattenNamespaceTools(parsed);
+    if (flat !== undefined) {
+      const body = new TextEncoder().encode(JSON.stringify(flat.body));
+      return { ...shape, body, namespaces: flat.names };
+    }
+  }
   const options = parsed.stream_options;
   if (
     streaming &&
@@ -518,6 +528,15 @@ const make = Effect.gen(function* () {
             )
           : Effect.void,
       ),
+      (stream) => {
+        if (prepared.namespaces === undefined) return stream;
+        const restorer = makeResponseRestorer(prepared.namespaces, prepared.streaming);
+        return stream.pipe(
+          Stream.map(restorer.push),
+          Stream.concat(Stream.sync(restorer.flush)),
+          Stream.filter((chunk) => chunk.length > 0),
+        );
+      },
       Stream.onExit((exit) =>
         finish(
           Exit.isSuccess(exit)

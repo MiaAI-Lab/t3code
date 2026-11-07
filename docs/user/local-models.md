@@ -58,8 +58,8 @@ estimated equivalent API spend.
 In a thread, the details panel's **Last request** row shows the most recent request's prompt
 size, cached share and time to first token. Its tooltip names the server that answered,
 including when a fallback did, and notes when the tool prefix changed or a different server
-answered than for the previous request. Either usually means the server had to read the prompt
-again instead of from cache, but a cache can also miss for other reasons.
+answered than for the previous request. Compare those notes with the cached share when a
+request starts slowly.
 
 ## Choose a provider
 

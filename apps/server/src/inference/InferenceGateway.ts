@@ -490,9 +490,6 @@ const make = Effect.gen(function* () {
         .pipe(Scope.provide(attempt), Effect.result);
       if (response._tag === "Success") {
         upstream = response.success;
-        if (caller.threadId !== undefined) {
-          yield* routing.rememberThread(caller.threadId, target.serverId);
-        }
         break;
       }
       if (next === undefined || !isPreDispatchFailure(response.failure)) {

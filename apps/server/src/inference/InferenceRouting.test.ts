@@ -8,7 +8,6 @@ import {
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerSettingsService from "../serverSettings.ts";
 import * as InferenceRouting from "./InferenceRouting.ts";
@@ -150,23 +149,9 @@ it.effect("allows a fallback whose context window is unknown", () =>
   ),
 );
 
-it.effect("prefers the thread's recent server until it has been idle for the expiry", () =>
-  Effect.gen(function* () {
-    const service = yield* InferenceRouting.InferenceRouting;
-    yield* service.rememberThread(thread, spark);
-    expect(yield* planIds({ threadId: thread })).toEqual([spark, rtx]);
-    expect(yield* planIds({ threadId: ThreadId.make("thread-2") })).toEqual([rtx, spark]);
-    yield* TestClock.adjust(InferenceRouting.AFFINITY_IDLE_MS - 1);
-    expect(yield* planIds({ threadId: thread })).toEqual([spark, rtx]);
-    yield* TestClock.adjust(1);
-    expect(yield* planIds({ threadId: thread })).toEqual([rtx, spark]);
-  }).pipe(Effect.provide(routing())),
-);
-
 it.effect("pins a previous response to its issuer and never to a server outside the pair", () =>
   Effect.gen(function* () {
     const service = yield* InferenceRouting.InferenceRouting;
-    yield* service.rememberThread(thread, rtx);
     yield* service.rememberResponse("resp_spark", spark);
     yield* service.rememberResponse("resp_other", other);
     expect(yield* planIds({ threadId: thread, previousResponseId: "resp_spark" })).toEqual([spark]);

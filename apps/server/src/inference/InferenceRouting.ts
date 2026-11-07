@@ -6,7 +6,6 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
-import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -18,8 +17,6 @@ import { requireSettingsSecret } from "../secrets/settingsSecretValue.ts";
 import * as Settings from "../serverSettings.ts";
 import * as InferenceServerRegistry from "./InferenceServerRegistry.ts";
 
-export const AFFINITY_IDLE_MS = 10 * 60_000;
-const MAX_THREAD_AFFINITIES = 1_024;
 const MAX_RESPONSE_AFFINITIES = 4_096;
 
 // Connection-phase failures: the request never left this machine, so another server may take it.
@@ -86,10 +83,6 @@ export class InferenceRouting extends Context.Service<
     readonly plan: (
       request: RouteRequest,
     ) => Effect.Effect<ReadonlyArray<RouteTarget>, InferenceRoutingError>;
-    readonly rememberThread: (
-      threadId: ThreadId,
-      serverId: InferenceServerId,
-    ) => Effect.Effect<void>;
     readonly rememberResponse: (
       responseId: string,
       serverId: InferenceServerId,
@@ -110,9 +103,6 @@ const make = Effect.gen(function* () {
   const settingsService = yield* Settings.ServerSettingsService;
   const registry = yield* InferenceServerRegistry.InferenceServerRegistry;
   const secrets = yield* SecretResolver.SecretResolver;
-  const threads = yield* Ref.make(
-    new Map<ThreadId, { readonly serverId: InferenceServerId; readonly at: number }>(),
-  );
   const responses = yield* Ref.make(new Map<string, InferenceServerId>());
 
   const plan = Effect.fn("InferenceRouting.plan")(function* (request: RouteRequest) {
@@ -195,26 +185,8 @@ const make = Effect.gen(function* () {
         fallbackModel.servedContextWindow >= request.contextTokens)
         ? Option.getOrUndefined(yield* target(fallbackId))
         : undefined;
-    if (fallback === undefined) return [primary.value];
-
-    const now = yield* Clock.currentTimeMillis;
-    const affinity =
-      request.threadId === undefined ? undefined : (yield* Ref.get(threads)).get(request.threadId);
-    const preferFallback =
-      affinity !== undefined &&
-      now - affinity.at < AFFINITY_IDLE_MS &&
-      affinity.serverId === fallback.serverId;
-    return preferFallback ? [fallback, primary.value] : [primary.value, fallback];
-  });
-
-  const rememberThread = Effect.fn("InferenceRouting.rememberThread")(function* (
-    threadId: ThreadId,
-    serverId: InferenceServerId,
-  ) {
-    const at = yield* Clock.currentTimeMillis;
-    yield* Ref.update(threads, (all) =>
-      bounded(all, threadId, { serverId, at }, MAX_THREAD_AFFINITIES),
-    );
+    // A ready primary always goes first: the fallback only covers it being down.
+    return fallback === undefined ? [primary.value] : [primary.value, fallback];
   });
 
   const rememberResponse = Effect.fn("InferenceRouting.rememberResponse")(function* (
@@ -226,7 +198,7 @@ const make = Effect.gen(function* () {
     );
   });
 
-  return InferenceRouting.of({ plan, rememberThread, rememberResponse });
+  return InferenceRouting.of({ plan, rememberResponse });
 });
 
 const parseEndpoint = (baseUrl: string) => {

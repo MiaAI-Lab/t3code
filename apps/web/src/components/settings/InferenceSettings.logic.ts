@@ -3,12 +3,16 @@ import {
   type InferenceServerConfig,
   type InferenceServerModel,
   type InferenceServerSnapshot,
+  type InferenceUsageRow,
+  type InferenceUsageSummary,
   type SecretReference,
   type UnifiedSettings,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+
+import { formatRelativeTimeLabel, msUntilRelativeTimeChange } from "../../timestampFormat";
 
 const decodeInferenceServerId = Schema.decodeOption(InferenceServerId);
 
@@ -244,4 +248,59 @@ export function resolveInferenceServerLink(
   if (!config) return { kind: "missing", id: inferenceServerId };
   const name = inferenceServerDisplayName(inferenceServerId, config);
   return config.enabled ? { kind: "enabled", name } : { kind: "disabled", name };
+}
+
+export interface InferenceServerProbeFreshness {
+  readonly label: string;
+  readonly stale: boolean;
+  /** When the label or staleness next changes, or null when neither will. */
+  readonly msUntilChange: number | null;
+}
+
+/** "Checked 3m ago", stale once two probe intervals pass without a check. */
+export function describeInferenceServerProbeFreshness(
+  checkedAt: string,
+  probeIntervalMs: number,
+  nowMs: number,
+): InferenceServerProbeFreshness | null {
+  const checkedMs = Date.parse(checkedAt);
+  const labelChangeMs = msUntilRelativeTimeChange(checkedAt, nowMs);
+  if (Number.isNaN(checkedMs) || labelChangeMs === null) return null;
+  // With periodic checks off, a check only happens on refresh or a settings change.
+  const staleAtMs = probeIntervalMs > 0 ? checkedMs + 2 * probeIntervalMs : Infinity;
+  const stale = nowMs >= staleAtMs;
+  return {
+    label: `Checked ${formatRelativeTimeLabel(checkedAt, nowMs)}`,
+    stale,
+    msUntilChange: stale ? labelChangeMs : Math.min(labelChangeMs, staleAtMs - nowMs),
+  };
+}
+
+const RECENT_FAILURE_MS = 60 * 60 * 1_000;
+
+export interface InferenceServerRequestHealth {
+  /** Whether any request in the window got a cached prompt count back; false means unknown. */
+  readonly reportsCachedTokens: boolean;
+  /** The latest failed or rejected request within the hour before the summary. */
+  readonly recentFailure: NonNullable<InferenceUsageRow["lastFailure"]> | null;
+}
+
+export function inferenceServerRequestHealth(
+  summary: InferenceUsageSummary,
+  serverId: InferenceServerId,
+): InferenceServerRequestHealth {
+  const rows = summary.rows.filter((row) => row.serverId === serverId);
+  const cutoffMs = Date.parse(summary.generatedAt) - RECENT_FAILURE_MS;
+  const recentFailure = rows
+    .flatMap((row) => (row.lastFailure ? [row.lastFailure] : []))
+    .filter((failure) => Date.parse(failure.at) >= cutoffMs)
+    .reduce<InferenceServerRequestHealth["recentFailure"]>(
+      (latest, failure) =>
+        latest === null || Date.parse(failure.at) > Date.parse(latest.at) ? failure : latest,
+      null,
+    );
+  return {
+    reportsCachedTokens: rows.some((row) => (row.promptTokensWithCacheData ?? 0) > 0),
+    recentFailure,
+  };
 }

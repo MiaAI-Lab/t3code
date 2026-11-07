@@ -17,6 +17,11 @@ concurrent requests**. T3 Code checks each server and shows whether it is ready,
 serves with their context windows, and its current load when the server reports one. **Refresh**
 checks again.
 
+Each server also shows when it was last checked, marked overdue when checks have stopped, whether
+it reports cached prompt tokens, and the last request through T3 Code that failed or was rejected
+in the past hour. Cached tokens show as `unknown` until a request in the last day comes back with a
+cached count, so a server that never reports one cannot show its cache reuse anywhere.
+
 A server can name another as its **Fallback server**. When the first cannot take a request before
 it is sent, for example because it is down, T3 Code's gateway sends the request to the fallback if
 it serves the same model. A request that already started is never moved.
@@ -58,8 +63,8 @@ equivalent API spend on its row.
 
 In a thread, the details panel's **Last request** row shows the most recent request's prompt
 size, cached share and time to first token. Its tooltip names the server that answered,
-including when a fallback did, and notes when the tool prefix changed or a different server
-answered than for the previous request. Compare those notes with the cached share when a
+including when a fallback did, and notes when the instructions or tools changed or a different
+server answered than for the previous request. Compare those notes with the cached share when a
 request starts slowly.
 
 ## Choose a provider

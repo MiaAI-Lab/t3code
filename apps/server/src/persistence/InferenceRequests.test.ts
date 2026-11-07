@@ -68,6 +68,7 @@ it.effect("aggregates by server, model, and purpose, excluding missing measureme
       }),
     );
     yield* log.record(row(3, { receivedAt: now - 3 * HOUR, status: "failed", queueWaitMs: 20 }));
+    yield* log.record(row(6, { receivedAt: now - 5 * HOUR, status: "rejected" }));
     yield* log.record(row(4, { receivedAt: now - 2 * DAY, purpose: "background", ttftMs: 5 }));
     yield* log.record(row(5, { receivedAt: now - 8 * DAY }));
 
@@ -78,12 +79,13 @@ it.effect("aggregates by server, model, and purpose, excluding missing measureme
         serverId: rtx,
         model: "GLM-5.3-Flash",
         purpose: "interactive",
-        requests: 3,
-        failed: 1,
+        requests: 4,
+        failed: 2,
         promptTokens: 60,
         cachedPromptTokens: 40,
         promptTokensWithCacheData: 50,
         completionTokens: 30,
+        lastFailure: { status: "failed", at: "1970-01-10T21:00:00.000Z" },
         queueWaitMs: { n: 3, p50: 20, p95: 30 },
         ttftMs: { n: 2, p50: 100, p95: 300 },
         decodeTokensPerSecond: { n: 2, p50: 5, p95: 20 },
@@ -92,7 +94,7 @@ it.effect("aggregates by server, model, and purpose, excluding missing measureme
     const week = yield* log.summarize("7d");
     expect(week.rows.map((entry) => [entry.purpose, entry.requests])).toEqual([
       ["background", 1],
-      ["interactive", 3],
+      ["interactive", 4],
     ]);
     expect(week.rows[0]?.ttftMs).toEqual({ n: 1, p50: 5, p95: 5 });
     expect(week.rows[0]?.queueWaitMs).toEqual({ n: 0, p50: null, p95: null });

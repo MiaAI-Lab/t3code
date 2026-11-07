@@ -255,7 +255,7 @@ An `openai-compatible:` model runs on the harness T3 would give it on a linked s
 
 Capture both from `evals/` with `pnpm mcp-tool-use:capture-local <codex|opencode>`. It needs the harness installed and no model: a scripted stub plays the model, and an MCP stub serves T3's tools from this checkout. Read the template before you commit it.
 
-Local runs record, per sample, tool-call validity apart from the grade (arguments that are not JSON, a tool the harness does not offer, arguments the tool's schema rejects, code that does not parse), prompt tokens and the server's time to first token per model call, and two static-prefix hashes: the one T3's gateway computes for prompt cache health, and one of everything before the case's first message. The summary adds them up. `--harness-report` prints, for the `--case` cases, how each harness's first request differs: system size, tools, how T3's tools appear, effort and prefix hashes. It makes no model calls.
+Local runs record, per sample, tool-call validity apart from the grade (arguments that are not JSON, a tool the harness does not offer, arguments the tool's schema rejects, code that does not parse, and replies with output tokens but no text or tool call, which the server dropped), prompt tokens and the server's time to first token per model call, and two static-prefix hashes: the one T3's gateway computes for prompt cache health, and one of everything before the case's first message. The summary adds them up. `--harness-report` prints, for the `--case` cases, how each harness's first request differs: system size, tools, how T3's tools appear, effort and prefix hashes. It makes no model calls.
 
 ```sh
 pnpm mcp-tool-use --model openai-compatible:GLM-5.3-Flash --shell-model openai-compatible:GLM-5.3-Flash \
@@ -263,6 +263,16 @@ pnpm mcp-tool-use --model openai-compatible:GLM-5.3-Flash --shell-model openai-c
   --harness <pi|codex|opencode> [--tool-profile lean] --case <ids> --out runs/<harness>
 pnpm mcp-tool-use --model openai-compatible:GLM-5.3-Flash --tool-profile lean --harness-report --case <ids>
 ```
+
+A run of GLM-5.3-Flash (local, `--effort high`, GLM as the shell, 3 samples, concurrency 2) on 32 of the 87 profile-comparison cases, stratified by area and kind:
+
+| Harness         | Pass        | Cases ≥2/3 | Schema-invalid calls | Empty replies | First request tokens | Tokens per sample |
+| --------------- | ----------- | ---------- | -------------------- | ------------- | -------------------- | ----------------- |
+| Pi 1.5.0 (lean) | 64/96 (67%) | 22/32      | 3                    | 0             | ~9.7k                | ~46k              |
+| Codex 0.167.0   | 75/96 (78%) | 26/32      | 5                    | 1             | ~22k                 | ~91k              |
+| OpenCode 2.2.5  | 63/96 (66%) | 22/32      | 9 (+2 unknown paths) | 5             | ~8.1k                | ~70k              |
+
+Codex's prompt is the largest: its fallback base instructions and every T3 tool, flattened. OpenCode shows 4 of T3's 68 tools in its catalog, the ones with the shortest signatures, so the model calls the rest after `search`, or by name without their signature; most of its schema-invalid calls are `delegate_task` with guessed fields, and it took 6.5 model calls per sample against about 4. Telling OpenCode where T3's tools are and to read a signature first gained 3 samples, within noise, and was not kept. All of OpenCode's empty replies failed their sample; the server generated tokens and returned nothing. The schema-invalid `t3_thread_launch` calls on every harness omit `workspaceStrategy.baseRef`, which T3's decoder requires for a worktree but the advertised schema does not.
 
 Codex and OpenCode code-mode cells take more model calls, so OpenCode gets Codex's larger step budget. Neither runs native subagents here: T3 turns Codex's multi-agent off on a linked server, and OpenCode's are not modelled, so `native-subagent` cases are skipped on every local harness.
 

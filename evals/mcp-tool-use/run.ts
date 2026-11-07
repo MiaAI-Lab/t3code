@@ -2683,6 +2683,17 @@ const runSample = Effect.fn("evaluateMcpToolUse.runSample")(function* (
       (yield* callModel(config.apiKey, requestBody(sample, config.effort, messages)));
     const measured = localResponse?.metrics ?? chatResponse?.metrics;
     if (measured) metrics.push(measured);
+    if (
+      measured &&
+      response.usage.output_tokens > 0 &&
+      !response.content.some((block) => block.type === "text" || block.type === "tool_use")
+    ) {
+      noteInvalid(
+        sample.validity,
+        "emptyReplies",
+        `step ${step}: ${response.usage.output_tokens} output tokens`,
+      );
+    }
     addUsage(usage, response.usage);
     messages.push({ role: "assistant", content: response.content });
     const texts = response.content.filter(isText).map((block) => block.text);

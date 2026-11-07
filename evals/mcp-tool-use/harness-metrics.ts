@@ -23,6 +23,8 @@ export type Validity = {
   schemaInvalid: number;
   /** Code cells that did not parse. */
   codeErrors: number;
+  /** Model replies with output tokens but no text and no tool call: the server dropped them. */
+  emptyReplies: number;
   /** A few offending calls, for a person reading the results. */
   examples: Array<string>;
 };
@@ -33,12 +35,13 @@ export const emptyValidity = (): Validity => ({
   unknownTool: 0,
   schemaInvalid: 0,
   codeErrors: 0,
+  emptyReplies: 0,
   examples: [],
 });
 
 export const noteInvalid = (
   validity: Validity,
-  kind: "malformedJson" | "unknownTool" | "schemaInvalid" | "codeErrors",
+  kind: "malformedJson" | "unknownTool" | "schemaInvalid" | "codeErrors" | "emptyReplies",
   example: string,
 ) => {
   validity[kind] += 1;
@@ -173,8 +176,15 @@ const round = (value: number, digits = 0) => (Number.isNaN(value) ? "-" : value.
 export const localSummary = (rows: ReadonlyArray<Row>) => {
   const finished = rows.filter((row) => row.error === undefined);
   const validity = finished.flatMap((row) => (row.validity ? [row.validity] : []));
-  const total = (key: "calls" | "malformedJson" | "unknownTool" | "schemaInvalid" | "codeErrors") =>
-    validity.reduce((sum, entry) => sum + entry[key], 0);
+  const total = (
+    key:
+      | "calls"
+      | "malformedJson"
+      | "unknownTool"
+      | "schemaInvalid"
+      | "codeErrors"
+      | "emptyReplies",
+  ) => validity.reduce((sum, entry) => sum + entry[key], 0);
   const invalidSamples = validity.filter(
     (entry) => entry.malformedJson + entry.unknownTool + entry.schemaInvalid + entry.codeErrors > 0,
   ).length;
@@ -191,7 +201,7 @@ export const localSummary = (rows: ReadonlyArray<Row>) => {
       .join(", ");
   const maxSteps = finished.filter((row) => row.stopReason === "max_steps").length;
   return [
-    `- Tool-call validity: ${total("calls")} calls in ${validity.length} samples; malformed JSON ${total("malformedJson")}, unknown tool ${total("unknownTool")}, schema-invalid ${total("schemaInvalid")}, code that did not parse ${total("codeErrors")}. Samples with any invalid call: ${invalidSamples}.`,
+    `- Tool-call validity: ${total("calls")} calls in ${validity.length} samples; malformed JSON ${total("malformedJson")}, unknown tool ${total("unknownTool")}, schema-invalid ${total("schemaInvalid")}, code that did not parse ${total("codeErrors")}. Samples with any invalid call: ${invalidSamples}. Empty replies (output tokens, but no text or tool call): ${total("emptyReplies")}.`,
     `- Prompt tokens: first request ${round(mean(first.map((call) => call.promptTokens)))} mean; per sample ${round(mean(prompt))} mean over ${round(mean(metrics.map((calls) => calls.length)), 1)} model calls.`,
     ttfts.length === 0
       ? "- Time to first token: not reported by the server."

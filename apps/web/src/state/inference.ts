@@ -3,6 +3,7 @@ import {
   sameThreadInferenceWait,
   threadInferenceWait,
 } from "@t3tools/client-runtime/state/inference-activity";
+import { makeLocalUsageModelsAtom } from "@t3tools/client-runtime/state/provider-instance-display";
 import { type AtomCommandResult, runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import * as Effect from "effect/Effect";
 import { Atom } from "effect/reactivity";
@@ -43,6 +44,18 @@ export const environmentsWithInferenceServersAtom = Atom.family((idsJson: string
     Atom.withLabel(`inference-environments:${idsJson}`),
   ),
 );
+
+/** Whether any of the environments (ids as a JSON array) has an enabled inference server. */
+export const hasEnabledInferenceServerAtom = Atom.family((idsJson: string) =>
+  Atom.make((get) =>
+    (JSON.parse(idsJson) as EnvironmentId[]).some((id) =>
+      get(serverEnvironment.inferenceServersValueAtom(id))?.some((server) => server.enabled),
+    ),
+  ).pipe(Atom.withLabel(`inference-has-enabled-server:${idsJson}`)),
+);
+
+/** Local models and the ones priced by the user, across the environments (ids as a JSON array). */
+export const localUsageModelsAtom = makeLocalUsageModelsAtom(serverEnvironment);
 
 function settled<A, E>(result: AtomCommandResult<A, E>): Effect.Effect<A, E> {
   return result._tag === "Success" ? Effect.succeed(result.value) : Effect.failCause(result.cause);

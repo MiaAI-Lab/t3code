@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { readUsagePagePreferences, saveUsagePagePreferences } from "./usagePagePreferences";
+import {
+  readUsagePagePreferences,
+  resolveUsagePagePreferences,
+  saveUsagePagePreferences,
+} from "./usagePagePreferences";
 
 const key = "t3code:usage-page-preferences:v1";
 let values: Map<string, string>;
@@ -26,7 +30,7 @@ afterEach(() => {
 describe("Usage page preferences", () => {
   it("round-trips hidden providers and reads older saves without them", () => {
     saveUsagePagePreferences({ metric: "cost", windowDays: 7, hiddenProviders: ["codex"] });
-    expect(readUsagePagePreferences().hiddenProviders).toEqual(["codex"]);
+    expect(readUsagePagePreferences()?.hiddenProviders).toEqual(["codex"]);
 
     values.set(key, '{"metric":"tokens","windowDays":30}');
     expect(readUsagePagePreferences()).toEqual({ metric: "tokens", windowDays: 30 });
@@ -39,8 +43,15 @@ describe("Usage page preferences", () => {
     '{"metric":"cost","windowDays":365}',
   ])("replaces invalid preferences on the next save: %s", (value) => {
     values.set(key, value);
-    expect(readUsagePagePreferences()).toEqual({ metric: "limits", windowDays: 30 });
+    expect(readUsagePagePreferences()).toBeNull();
     saveUsagePagePreferences({ metric: "tokens", windowDays: 7 });
     expect(readUsagePagePreferences()).toEqual({ metric: "tokens", windowDays: 7 });
+  });
+
+  it("opens on Tokens for local inference unless a choice was saved", () => {
+    expect(resolveUsagePagePreferences(null, false)).toEqual({ metric: "limits", windowDays: 30 });
+    expect(resolveUsagePagePreferences(null, true)).toEqual({ metric: "tokens", windowDays: 30 });
+    const saved = { metric: "cost", windowDays: 7 } as const;
+    expect(resolveUsagePagePreferences(saved, true)).toBe(saved);
   });
 });

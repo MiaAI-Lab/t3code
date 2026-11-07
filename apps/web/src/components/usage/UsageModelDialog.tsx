@@ -1,3 +1,8 @@
+import {
+  ESTIMATED_API_SPEND_LABEL,
+  type LocalUsageModels,
+  localUsageModelCost,
+} from "@t3tools/client-runtime/state/provider-instance-display";
 import { formatPercent, formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
 import { isModelCostUnknown, type ModelTotals } from "@t3tools/shared/usageMerge";
 
@@ -40,8 +45,10 @@ export function UsageModelDialog({
   chartWindow,
   onSetPrice,
   onClose,
+  localModels,
 }: {
   readonly model: ModelTotals;
+  readonly localModels: LocalUsageModels;
   readonly environments: readonly EnvironmentUsageStatus[];
   readonly metric: UsageChartMetric;
   readonly chartWindow: UsageChartWindow;
@@ -54,11 +61,17 @@ export function UsageModelDialog({
   );
   const providers = [model.provider];
   const presentation = PROVIDER_PRESENTATION[model.provider];
-  const costUnknown = isModelCostUnknown(model);
+  const localCost = localUsageModelCost(model.model, localModels);
+  // A local model's cost is shown only as an estimate from a price the user set.
+  const costUnknown = isModelCostUnknown(model) || localCost === "local";
   const hitRate = cacheHitRate(model);
   const perMillion = costPerMillionTokens(model);
   const stats = [
-    { label: "Cost", value: costUnknown ? "Unpriced" : formatUsd(model.costUsd) },
+    localCost === "local"
+      ? { label: "Cost", value: "Local" }
+      : localCost === "estimate" && !costUnknown
+        ? { label: ESTIMATED_API_SPEND_LABEL, value: formatUsd(model.costUsd) }
+        : { label: "Cost", value: costUnknown ? "Unpriced" : formatUsd(model.costUsd) },
     { label: "Tokens", value: formatTokens(model.totalTokens) },
     perMillion === null ? null : { label: "Per 1M tokens", value: formatUsd(perMillion) },
     hitRate === null ? null : { label: "Cache hit", value: formatPercent(hitRate) },

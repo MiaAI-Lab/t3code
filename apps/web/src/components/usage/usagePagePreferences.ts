@@ -11,15 +11,22 @@ const UsagePagePreferencesSchema = Schema.Struct({
 });
 export type UsagePagePreferences = typeof UsagePagePreferencesSchema.Type;
 
-const DEFAULT_PREFERENCES: UsagePagePreferences = { metric: "limits", windowDays: 30 };
-
-export function readUsagePagePreferences(): UsagePagePreferences {
+/** Null when nothing valid is saved, so the page can pick a default from what is connected. */
+export function readUsagePagePreferences(): UsagePagePreferences | null {
   try {
-    return getLocalStorageItem(STORAGE_KEY, UsagePagePreferencesSchema) ?? DEFAULT_PREFERENCES;
+    return getLocalStorageItem(STORAGE_KEY, UsagePagePreferencesSchema);
   } catch (error) {
     console.error("Could not read Usage page preferences.", error);
-    return DEFAULT_PREFERENCES;
+    return null;
   }
+}
+
+/** A saved choice wins; otherwise Tokens, where Local compute shows, when a local server is in use. */
+export function resolveUsagePagePreferences(
+  saved: UsagePagePreferences | null,
+  hasEnabledInferenceServer: boolean,
+): UsagePagePreferences {
+  return saved ?? { metric: hasEnabledInferenceServer ? "tokens" : "limits", windowDays: 30 };
 }
 
 export function saveUsagePagePreferences(preferences: UsagePagePreferences): void {

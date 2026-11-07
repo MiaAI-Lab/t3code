@@ -5,6 +5,11 @@ import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScroll
 import { EnvironmentId, USAGE_CONTRACT_VERSION, type UsageProviderKind } from "@t3tools/contracts";
 import { type RouteProp, useIsFocused, useRoute } from "@react-navigation/native";
 import { cursorKeychainAccessEnvironments } from "@t3tools/client-runtime/state/usage";
+import { useAtomValue } from "@effect/atom-react";
+import {
+  type LocalUsageModels,
+  localUsageModelCost,
+} from "@t3tools/client-runtime/state/provider-instance-display";
 import {
   updatingProvidersLabel,
   usageEnvironmentProgress,
@@ -42,7 +47,7 @@ import { ProviderIcon } from "../../components/ProviderIcon";
 import { cn } from "../../lib/cn";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { useUsage, type EnvironmentUsageStatus } from "../../state/usage";
-import { serverEnvironment } from "../../state/server";
+import { localUsageModelsAtom, serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { UsageDailyChart } from "./UsageDailyChart";
@@ -111,6 +116,11 @@ function UsageScreen(props: {
   const { merged, environments, selectedEnvironments, isPending, refresh } = useUsage(
     window,
     selectedEnvironmentIds,
+  );
+  const localModels = useAtomValue(
+    localUsageModelsAtom(
+      JSON.stringify(selectedEnvironments.map((environment) => environment.environmentId)),
+    ),
   );
   const isFocused = useIsFocused();
   const limits = useRefreshLimits(selectedEnvironmentIds, isFocused && view === "limits");
@@ -376,7 +386,12 @@ function UsageScreen(props: {
                         columns={width >= 900 ? 6 : wide ? 3 : 2}
                       />
                       <CostSection merged={merged} wide={wide} />
-                      <ModelsSection merged={merged} metric={metric} columns={wide ? 2 : 1} />
+                      <ModelsSection
+                        merged={merged}
+                        metric={metric}
+                        columns={wide ? 2 : 1}
+                        localModels={localModels}
+                      />
                     </UsageUpdating>
                   </>
                 )}
@@ -903,6 +918,7 @@ function ModelsSection(props: {
   readonly merged: MergedUsage;
   readonly metric: UsageChartMetric;
   readonly columns: 1 | 2;
+  readonly localModels: LocalUsageModels;
 }) {
   const { merged, metric } = props;
   const colors = useProviderColors();
@@ -918,43 +934,50 @@ function ModelsSection(props: {
   return (
     <SettingsSection title="By model">
       <View className="flex-row flex-wrap">
-        {ordered.map((model, index) => (
-          <View
-            key={`${model.provider}:${model.model}`}
-            className={cn(
-              "flex-row items-center gap-3 p-4",
-              index >= props.columns && "border-t border-border-subtle",
-              index % props.columns === 1 && "border-l border-border-subtle",
-            )}
-            style={{ width: `${100 / props.columns}%` }}
-          >
+        {ordered.map((model, index) => {
+          const localCost = localUsageModelCost(model.model, props.localModels);
+          const costUnknown = isModelCostUnknown(model) || localCost === "local";
+          const cost =
+            localCost === "local"
+              ? "Local"
+              : isModelCostUnknown(model)
+                ? "Unpriced"
+                : localCost === "estimate"
+                  ? `~${formatUsd(model.costUsd)}`
+                  : formatUsd(model.costUsd);
+          const rates = localCost === "local" ? "local" : "no known rates";
+          return (
             <View
-              className="size-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: colors[model.provider] }}
-            />
-            <View className="min-w-0 flex-1 gap-0.5">
-              <Text className="text-base text-foreground" numberOfLines={1}>
-                {model.model}
-              </Text>
-              <Text className="text-sm text-foreground-muted">
-                {metric === "tokens"
-                  ? `${formatPercent(model.tokenShare)} of tokens · ${
-                      isModelCostUnknown(model) ? "no known rates" : formatUsd(model.costUsd)
-                    }`
-                  : isModelCostUnknown(model)
-                    ? `no known rates · ${formatTokens(model.totalTokens)} tokens`
-                    : `${formatPercent(model.costShare)} of cost · ${formatTokens(model.totalTokens)} tokens`}
+              key={`${model.provider}:${model.model}`}
+              className={cn(
+                "flex-row items-center gap-3 p-4",
+                index >= props.columns && "border-t border-border-subtle",
+                index % props.columns === 1 && "border-l border-border-subtle",
+              )}
+              style={{ width: `${100 / props.columns}%` }}
+            >
+              <View
+                className="size-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: colors[model.provider] }}
+              />
+              <View className="min-w-0 flex-1 gap-0.5">
+                <Text className="text-base text-foreground" numberOfLines={1}>
+                  {model.model}
+                </Text>
+                <Text className="text-sm text-foreground-muted">
+                  {metric === "tokens"
+                    ? `${formatPercent(model.tokenShare)} of tokens · ${costUnknown ? rates : cost}`
+                    : costUnknown
+                      ? `${rates} · ${formatTokens(model.totalTokens)} tokens`
+                      : `${formatPercent(model.costShare)} of cost · ${formatTokens(model.totalTokens)} tokens`}
+                </Text>
+              </View>
+              <Text className="text-base tabular-nums text-foreground">
+                {metric === "tokens" ? formatTokens(model.totalTokens) : cost}
               </Text>
             </View>
-            <Text className="text-base tabular-nums text-foreground">
-              {metric === "tokens"
-                ? formatTokens(model.totalTokens)
-                : isModelCostUnknown(model)
-                  ? "Unpriced"
-                  : formatUsd(model.costUsd)}
-            </Text>
-          </View>
-        ))}
+          );
+        })}
       </View>
     </SettingsSection>
   );

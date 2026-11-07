@@ -6,6 +6,8 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  collectLocalUsageModels,
+  localUsageModelCost,
   normalizeProviderAccentColor,
   providerAccentForegroundColor,
   providerInstanceInferenceLabel,
@@ -116,5 +118,33 @@ describe("providerInstanceInferenceLabel", () => {
     );
     expect(providerInstanceInferenceLabel("Pi", linked, null)).toBe("Pi");
     expect(providerInstanceInferenceLabel("Codex", {}, [server()])).toBe("Codex");
+  });
+});
+
+describe("localUsageModelCost", () => {
+  const model = (slug: string) => ({ slug, name: slug, isCustom: false, capabilities: null });
+  const models = collectLocalUsageModels([
+    {
+      inferenceServers: [
+        { id: InferenceServerId.make("rtx"), enabled: true, models: [{ id: "GLM-5.3-Flash" }] },
+        { id: InferenceServerId.make("old"), enabled: false, models: [{ id: "qwen3" }] },
+      ],
+      providers: [
+        { inference: "local", models: [model("llama3")] },
+        { inferenceServerId: InferenceServerId.make("old"), models: [model("mistral")] },
+        { models: [model("gpt-5")] },
+      ],
+      priceOverrides: { "glm-5.3-flash": {} },
+      modelAliases: undefined,
+    },
+  ]);
+
+  it("marks local models, matching a provider prefix, and estimates only priced ones", () => {
+    expect(localUsageModelCost("glm-5.3-flash", models)).toBe("estimate");
+    expect(localUsageModelCost("t3-rtx/GLM-5.3-Flash", models)).toBe("local");
+    expect(localUsageModelCost("llama3", models)).toBe("local");
+    expect(localUsageModelCost("qwen3", models)).toBeNull();
+    expect(localUsageModelCost("mistral", models)).toBeNull();
+    expect(localUsageModelCost("gpt-5", models)).toBeNull();
   });
 });

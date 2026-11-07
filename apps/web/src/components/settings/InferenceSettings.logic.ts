@@ -223,6 +223,56 @@ export function describeInferenceServerLoad(
   return parts.length === 0 ? null : parts.join(" · ");
 }
 
+const GIB = 1024 ** 3;
+const formatGib = (bytes: number) => (bytes / GIB).toFixed(1);
+
+export interface InferencePromptCacheHealth {
+  readonly summary: string;
+  /** Set only when the cache is full and its cached share is falling. */
+  readonly warning: string | null;
+  readonly advice: string | null;
+}
+
+export function describeInferencePromptCache(
+  snapshot: Pick<InferenceServerSnapshot, "engine" | "promptCache">,
+): InferencePromptCacheHealth | null {
+  const cache = snapshot.promptCache;
+  if (cache === undefined) return null;
+  const tensorFold = snapshot.engine === "TensorFold";
+  if (cache.status === "none") {
+    return {
+      summary: "No prompt cache: every request reads its whole prompt",
+      warning: null,
+      advice: tensorFold
+        ? "Start TensorFold with --prompt-cache-gib to keep threads warm, if memory allows."
+        : "Turn on the server's prompt cache to keep threads warm, if memory allows.",
+    };
+  }
+  const size =
+    cache.retainedBytes === undefined
+      ? formatGib(cache.budgetBytes)
+      : `${formatGib(cache.retainedBytes)} / ${formatGib(cache.budgetBytes)}`;
+  const parts = [`Prompt cache ${size} GiB`];
+  if (cache.states !== undefined) {
+    parts.push(`${cache.states} saved ${cache.states === 1 ? "prompt" : "prompts"}`);
+  }
+  if (cache.recentCachedShare !== undefined) {
+    parts.push(`${Math.round(cache.recentCachedShare * 100)}% of prompt tokens cached recently`);
+  }
+  const falling = cache.status === "saturated-falling";
+  return {
+    summary: parts.join(" · "),
+    warning: falling
+      ? "The prompt cache is full and less of each prompt is cached than before, so threads are being pushed out."
+      : null,
+    advice: !falling
+      ? null
+      : tensorFold
+        ? "Restart TensorFold with a larger --prompt-cache-gib, if memory allows."
+        : "Give the server a larger prompt cache, if memory allows.",
+  };
+}
+
 export type InferenceServerLink =
   | { readonly kind: "none" }
   | { readonly kind: "enabled"; readonly name: string }

@@ -207,7 +207,8 @@ export function InferenceServerDialog({
                   </SelectPopup>
                 </Select>
                 <p id="inference-server-fallback-hint" className="text-xs text-muted-foreground">
-                  Takes requests this server cannot accept, when it serves the same model.
+                  Takes requests while this server is down or unreachable, when it serves the same
+                  model.
                 </p>
                 <FieldError id="inference-server-fallback-error" message={shown.fallbackServerId} />
               </div>

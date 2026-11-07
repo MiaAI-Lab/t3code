@@ -45,8 +45,6 @@ export class InferenceAdmission extends Context.Service<
     readonly admit: (
       ticket: AdmissionTicket,
     ) => Effect.Effect<void, InferenceAdmissionError, Scope.Scope>;
-    /** Whether a request to this server would be admitted now, without waiting. */
-    readonly available: (serverId: InferenceServerId) => Effect.Effect<boolean>;
   }
 >()("t3/inference/InferenceAdmission") {}
 
@@ -185,15 +183,7 @@ const makeWithOptions = Effect.fn("InferenceAdmission.make")(function* (
     );
   });
 
-  const available = Effect.fn("InferenceAdmission.available")(function* (
-    serverId: InferenceServerId,
-  ) {
-    const capacity = yield* options.capacity(serverId);
-    const queue = (yield* Ref.get(queues)).get(serverId);
-    return (queue?.waiting.length ?? 0) === 0 && (queue?.active.length ?? 0) < capacity;
-  });
-
-  return InferenceAdmission.of({ admit, available });
+  return InferenceAdmission.of({ admit });
 });
 
 /**

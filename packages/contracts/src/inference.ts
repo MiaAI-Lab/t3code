@@ -30,6 +30,20 @@ export const InferenceServerLoad = Schema.Struct({
 });
 export type InferenceServerLoad = typeof InferenceServerLoad.Type;
 
+/** The server's retained prompt states; omitted when it does not report a budget. */
+export const InferenceServerPromptCache = Schema.Struct({
+  budgetBytes: NonNegativeInt,
+  retainedBytes: Schema.optional(NonNegativeInt),
+  states: Schema.optional(NonNegativeInt),
+  /** Prompt tokens restored from cache over the latest probe interval that saw requests. */
+  recentCachedShare: Schema.optional(
+    Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1 })),
+  ),
+  /** `saturated-falling`: full, and the cached share dropped since the interval before. */
+  status: Schema.Literals(["none", "ok", "saturated-falling"]),
+});
+export type InferenceServerPromptCache = typeof InferenceServerPromptCache.Type;
+
 /** Request protocols a server serves under its base URL, as T3's gateway forwards them. */
 export const InferenceApiProtocol = Schema.Literals([
   "chat-completions",
@@ -75,6 +89,7 @@ export const InferenceServerSnapshot = Schema.Struct({
   /** Protocols the probe saw the server route; absent when none were confirmed. */
   apiProtocols: Schema.optional(Schema.Array(InferenceApiProtocol)),
   gatewayQueue: Schema.optional(InferenceGatewayQueue),
+  promptCache: Schema.optional(InferenceServerPromptCache),
 });
 export type InferenceServerSnapshot = typeof InferenceServerSnapshot.Type;
 

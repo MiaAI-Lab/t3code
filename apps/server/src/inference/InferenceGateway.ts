@@ -11,7 +11,6 @@ import * as Digest from "effect/crypto/Digest";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
-import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -33,7 +32,7 @@ import * as InferenceRequests from "../persistence/InferenceRequests.ts";
 import { requireSettingsSecret } from "../secrets/settingsSecretValue.ts";
 import * as InferenceAdmission from "./InferenceAdmission.ts";
 import * as InferenceRouting from "./InferenceRouting.ts";
-import { isPreDispatchFailure, PRIMARY_WAIT_MS } from "./InferenceRouting.ts";
+import { isPreDispatchFailure } from "./InferenceRouting.ts";
 import { parseBaseUrl } from "./InferenceServerRegistry.ts";
 import { makeUsageMeter } from "./inferenceUsage.ts";
 import { flattenNamespaceTools, makeResponseRestorer } from "./responsesNamespaceTools.ts";
@@ -471,29 +470,12 @@ const make = Effect.gen(function* () {
       if (next !== undefined && !target.ready) continue;
       yield* Ref.set(served, { serverId: target.serverId, fallbackFrom: target.fallbackFrom });
       const attempt = yield* Scope.fork(lifetime);
-      const ticket = { serverId: target.serverId, purpose, threadId: caller.threadId };
-      const admitted = yield* Effect.gen(function* () {
-        const waiting = yield* admission
-          .admit(ticket)
-          .pipe(Scope.provide(attempt), Effect.forkChild({ startImmediately: true }));
-        if (next === undefined)
-          return yield* Fiber.join(waiting).pipe(Effect.as("admitted" as const));
-        // Spill rather than wait: past the bound, move on if the next server has a free slot.
-        const early = yield* Fiber.join(waiting).pipe(Effect.timeoutOption(PRIMARY_WAIT_MS));
-        if (Option.isSome(early)) return "admitted" as const;
-        if (yield* admission.available(next.serverId)) {
-          yield* Fiber.interrupt(waiting);
-          return "spill" as const;
-        }
-        return yield* Fiber.join(waiting).pipe(Effect.as("admitted" as const));
-      }).pipe(Effect.result);
+      const admitted = yield* admission
+        .admit({ serverId: target.serverId, purpose, threadId: caller.threadId })
+        .pipe(Scope.provide(attempt), Effect.result);
       if (admitted._tag === "Failure") {
         yield* finish("rejected");
         return errorResponse(503, "overloaded_error", admitted.failure.message);
-      }
-      if (admitted.success === "spill") {
-        yield* Scope.close(attempt, Exit.void);
-        continue;
       }
       const dispatchedAt = yield* Clock.currentTimeMillis;
       yield* Ref.set(milestones, { admittedAt: dispatchedAt, dispatchedAt });

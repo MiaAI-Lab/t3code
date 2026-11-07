@@ -18,8 +18,6 @@ import { requireSettingsSecret } from "../secrets/settingsSecretValue.ts";
 import * as Settings from "../serverSettings.ts";
 import * as InferenceServerRegistry from "./InferenceServerRegistry.ts";
 
-/** How long a request may wait for a slot on its preferred server before spilling to the next. */
-export const PRIMARY_WAIT_MS = 3_000;
 export const AFFINITY_IDLE_MS = 10 * 60_000;
 const MAX_THREAD_AFFINITIES = 1_024;
 const MAX_RESPONSE_AFFINITIES = 4_096;

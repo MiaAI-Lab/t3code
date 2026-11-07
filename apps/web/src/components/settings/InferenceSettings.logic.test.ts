@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   describeInferenceModelContext,
+  describeInferencePromptCache,
   describeInferenceServerFallback,
   describeInferenceServerProbeFreshness,
   EMPTY_INFERENCE_SERVER_DRAFT,
@@ -274,5 +275,50 @@ describe("inferenceServerRequestHealth", () => {
         rtx,
       ).recentFailure,
     ).toBeNull();
+  });
+});
+
+describe("describeInferencePromptCache", () => {
+  const full = {
+    budgetBytes: 9_122_911_181,
+    retainedBytes: 9_122_611_200,
+    states: 25,
+    recentCachedShare: 0.853,
+  };
+
+  it("summarizes a healthy cache without a warning", () => {
+    expect(
+      describeInferencePromptCache({
+        engine: "TensorFold",
+        promptCache: { ...full, status: "ok" },
+      }),
+    ).toEqual({
+      summary:
+        "Prompt cache 8.5 / 8.5 GiB · 25 saved prompts · 85% of prompt tokens cached recently",
+      warning: null,
+      advice: null,
+    });
+  });
+
+  it.each([
+    ["TensorFold", "none", true],
+    ["vLLM", "none", false],
+    ["TensorFold", "saturated-falling", true],
+    ["llama.cpp", "saturated-falling", false],
+  ] as const)("names --prompt-cache-gib for %s only (%s)", (engine, status, named) => {
+    const health = describeInferencePromptCache({
+      engine,
+      promptCache: status === "none" ? { budgetBytes: 0, status } : { ...full, status },
+    });
+    expect(health?.warning === null).toBe(status === "none");
+    expect(health?.advice?.includes("--prompt-cache-gib")).toBe(named);
+  });
+
+  it("leaves out what the server did not report", () => {
+    expect(
+      describeInferencePromptCache({ promptCache: { budgetBytes: 4 * 1024 ** 3, status: "ok" } })
+        ?.summary,
+    ).toBe("Prompt cache 4.0 GiB");
+    expect(describeInferencePromptCache({ engine: "TensorFold" })).toBeNull();
   });
 });

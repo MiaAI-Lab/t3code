@@ -1,4 +1,4 @@
-import type { ProviderInstanceId } from "@t3tools/contracts";
+import type { InferenceApiProtocol, ProviderInstanceId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Scope from "effect/Scope";
@@ -13,33 +13,53 @@ export interface ManagedInferenceModel {
   readonly reasoningEfforts?: ReadonlyArray<string>;
 }
 
-/** A linked server whose OpenAI chat route T3's gateway can carry for a harness. */
+/** A linked server whose route for a harness's protocol T3's gateway can carry. */
 export interface ManagedInferenceServer {
   readonly serverId: string;
   readonly displayName: string;
   readonly models: ReadonlyArray<ManagedInferenceModel>;
 }
 
+/** Why a linked server is or is not managed for a harness; the reason is user-facing text. */
+export type ManagedServerResolution =
+  | { readonly managed: true; readonly server: ManagedInferenceServer }
+  | { readonly managed: false; readonly reason: string };
+
+export interface ManagedServerCredential {
+  readonly server: ManagedInferenceServer;
+  readonly credential: InferenceGatewayCredential;
+}
+
 /**
- * How harnesses reach a linked inference server through T3's gateway. Thread sessions take their
- * credential from their MCP session config; discovery and text generation borrow a background one.
+ * How harnesses reach a linked inference server through T3's gateway. Each asks for the protocol
+ * it speaks. Thread sessions take their credential from their MCP session config; discovery and
+ * text generation borrow a background one, and a shared harness process holds an instance one.
  */
 export class InferenceGatewayAccess extends Context.Service<
   InferenceGatewayAccess,
   {
-    /** Undefined unless the instance's linked server is enabled, ready, and serves chat completions. */
+    /** Undefined when the instance is not linked to a server. */
+    readonly resolve: (
+      instanceId: ProviderInstanceId,
+      protocol: InferenceApiProtocol,
+    ) => Effect.Effect<ManagedServerResolution | undefined>;
+    /** Undefined unless the linked server is enabled, ready, and serves the protocol. */
     readonly managedServer: (
       instanceId: ProviderInstanceId,
+      protocol: InferenceApiProtocol,
     ) => Effect.Effect<ManagedInferenceServer | undefined>;
     /** A short-lived credential for the instance's managed server, revoked with the scope. */
-    readonly backgroundCredential: (instanceId: ProviderInstanceId) => Effect.Effect<
-      | {
-          readonly server: ManagedInferenceServer;
-          readonly credential: InferenceGatewayCredential;
-        }
-      | undefined,
-      never,
-      Scope.Scope
-    >;
+    readonly backgroundCredential: (
+      instanceId: ProviderInstanceId,
+      protocol: InferenceApiProtocol,
+    ) => Effect.Effect<ManagedServerCredential | undefined, never, Scope.Scope>;
+    /**
+     * For a harness process that serves many threads: attributed to the instance, counted as
+     * chat, and valid until the scope (the process) closes.
+     */
+    readonly instanceCredential: (
+      instanceId: ProviderInstanceId,
+      protocol: InferenceApiProtocol,
+    ) => Effect.Effect<ManagedServerCredential | undefined, never, Scope.Scope>;
   }
 >()("@t3tools/provider-core/server/inferenceGateway/InferenceGatewayAccess") {}

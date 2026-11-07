@@ -38,11 +38,11 @@ export const makePiGatewaySource = Effect.fn("makePiGatewaySource")(function* (
     forSession: Effect.fn("PiGateway.forSession")(function* (mcpSession) {
       const credential = mcpSession?.inferenceGateway;
       if (credential === undefined) return undefined;
-      const server = yield* access.value.managedServer(instanceId);
+      const server = yield* access.value.managedServer(instanceId, "chat-completions");
       return server?.serverId === credential.serverId ? { server, credential } : undefined;
     }),
     forBackground: Effect.gen(function* () {
-      const background = yield* access.value.backgroundCredential(instanceId);
+      const background = yield* access.value.backgroundCredential(instanceId, "chat-completions");
       if (background === undefined) return undefined;
       const extensionPath = yield* materializePiT3GatewayExtension(cacheDir).pipe(
         Effect.provideService(FileSystem.FileSystem, fileSystem),

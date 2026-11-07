@@ -1,4 +1,5 @@
 import type {
+  InferenceApiProtocol,
   InferenceServerId,
   InferenceServerSnapshot,
   ProviderInstanceId,
@@ -14,34 +15,50 @@ import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.
 import * as Settings from "../serverSettings.ts";
 import * as InferenceServerRegistry from "./InferenceServerRegistry.ts";
 
-/** What a harness can use through the gateway; undefined unless verified for chat completions. */
-function managedServerOf(
+const PROTOCOL_NAMES: Record<InferenceApiProtocol, string> = {
+  "chat-completions": "OpenAI Chat Completions",
+  completions: "OpenAI Completions",
+  responses: "OpenAI Responses",
+  messages: "Anthropic Messages",
+};
+
+/** Undefined when nothing is linked; otherwise whether the gateway can carry the protocol. */
+function resolveManagedServer(
   settings: ServerSettings,
   snapshots: ReadonlyArray<InferenceServerSnapshot>,
   serverId: InferenceServerId | undefined,
-): InferenceGateway.ManagedInferenceServer | undefined {
-  if (serverId === undefined || settings.inferenceServers[serverId]?.enabled !== true) {
-    return undefined;
-  }
+  protocol: InferenceApiProtocol,
+): InferenceGateway.ManagedServerResolution | undefined {
+  if (serverId === undefined) return undefined;
   const snapshot = snapshots.find((candidate) => candidate.id === serverId);
-  if (
-    snapshot?.status !== "ready" ||
-    snapshot.apiProtocols?.includes("chat-completions") !== true ||
-    snapshot.models.length === 0
-  ) {
-    return undefined;
+  const name = snapshot?.displayName ?? serverId;
+  const unmanaged = (reason: string) => ({ managed: false, reason }) as const;
+  if (settings.inferenceServers[serverId]?.enabled !== true) {
+    return unmanaged(`Inference server ${name} is disabled.`);
   }
+  if (snapshot?.status !== "ready") return unmanaged(`Inference server ${name} is not ready.`);
+  if (snapshot.apiProtocols?.includes(protocol) !== true) {
+    return unmanaged(
+      `Inference server ${name} does not serve the ${PROTOCOL_NAMES[protocol]} API this provider needs.`,
+    );
+  }
+  if (snapshot.models.length === 0) return unmanaged(`Inference server ${name} lists no models.`);
   return {
-    serverId,
-    displayName: snapshot.displayName,
-    models: snapshot.models.map((model) => ({
-      id: model.id,
-      ...(model.servedContextWindow === undefined
-        ? {}
-        : { contextWindow: model.servedContextWindow }),
-      ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
-      ...(model.reasoningEfforts === undefined ? {} : { reasoningEfforts: model.reasoningEfforts }),
-    })),
+    managed: true,
+    server: {
+      serverId,
+      displayName: snapshot.displayName,
+      models: snapshot.models.map((model) => ({
+        id: model.id,
+        ...(model.servedContextWindow === undefined
+          ? {}
+          : { contextWindow: model.servedContextWindow }),
+        ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
+        ...(model.reasoningEfforts === undefined
+          ? {}
+          : { reasoningEfforts: model.reasoningEfforts }),
+      })),
+    },
   };
 }
 
@@ -50,37 +67,60 @@ const make = Effect.gen(function* () {
   const registry = yield* InferenceServerRegistry.InferenceServerRegistry;
   const credentials = yield* McpSessionRegistry.McpSessionRegistry;
 
-  const managedServer = Effect.fn("InferenceGatewayAccess.managedServer")(function* (
+  const resolve = Effect.fn("InferenceGatewayAccess.resolve")(function* (
     instanceId: ProviderInstanceId,
+    protocol: InferenceApiProtocol,
   ) {
     const settings = yield* settingsService.getSettings.pipe(Effect.option);
     if (settings._tag === "None") return undefined;
-    return managedServerOf(
+    return resolveManagedServer(
       settings.value,
       yield* registry.current,
       settings.value.providerInstances[instanceId]?.inferenceServerId,
+      protocol,
     );
+  });
+  const managedServer = (instanceId: ProviderInstanceId, protocol: InferenceApiProtocol) =>
+    resolve(instanceId, protocol).pipe(
+      Effect.map((resolution) => (resolution?.managed === true ? resolution.server : undefined)),
+    );
+  // Traced by the two named callers below.
+  const credentialFor = Effect.fnUntraced(function* (
+    instanceId: ProviderInstanceId,
+    protocol: InferenceApiProtocol,
+    holder: ProviderInstanceId | undefined,
+  ) {
+    const server = yield* managedServer(instanceId, protocol);
+    if (server === undefined) return undefined;
+    const credential = yield* credentials.issueBackgroundInference(
+      server.serverId as InferenceServerId,
+      holder,
+    );
+    return { server, credential };
   });
 
   return InferenceGateway.InferenceGatewayAccess.of({
+    resolve,
     managedServer,
     backgroundCredential: Effect.fn("InferenceGatewayAccess.backgroundCredential")(
-      function* (instanceId) {
-        const server = yield* managedServer(instanceId);
-        if (server === undefined) return undefined;
-        const credential = yield* credentials.issueBackgroundInference(
-          server.serverId as InferenceServerId,
-        );
-        return { server, credential };
+      function* (instanceId, protocol) {
+        return yield* credentialFor(instanceId, protocol, undefined);
+      },
+    ),
+    instanceCredential: Effect.fn("InferenceGatewayAccess.instanceCredential")(
+      function* (instanceId, protocol) {
+        return yield* credentialFor(instanceId, protocol, instanceId);
       },
     ),
   });
 });
 
+const HARNESS_PROTOCOLS: ReadonlyArray<InferenceApiProtocol> = ["chat-completions", "responses"];
+
 export const layer = Layer.effect(InferenceGateway.InferenceGatewayAccess, make);
 
 /**
- * Pi lists a managed server's models only after discovery runs with its gateway, so a linked
+ * Harnesses list a managed server's models only after discovery runs with its gateway, so a linked
  * instance re-discovers when what its server offers through the gateway changes.
  */
 export const layerRefreshLinkedInstances = Layer.effectDiscard(
@@ -96,7 +136,11 @@ export const layerRefreshLinkedInstances = Layer.effectDiscard(
             const offers = new Map(
               snapshots.map((snapshot) => [
                 snapshot.id as string,
-                JSON.stringify(managedServerOf(settings, snapshots, snapshot.id) ?? null),
+                JSON.stringify(
+                  HARNESS_PROTOCOLS.map((protocol) =>
+                    resolveManagedServer(settings, snapshots, snapshot.id, protocol),
+                  ),
+                ),
               ]),
             );
             const changed = new Set(

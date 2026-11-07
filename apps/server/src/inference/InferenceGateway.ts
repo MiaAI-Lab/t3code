@@ -147,7 +147,10 @@ const make = Effect.gen(function* () {
     caller: McpSessionRegistry.InferenceCaller,
   ) {
     if (caller.threadId === undefined) {
-      return { purpose: "background" as InferenceRequestPurpose, runId: null };
+      // An instance-held credential serves a harness process shared by its threads' chats.
+      const purpose: InferenceRequestPurpose =
+        caller.providerInstanceId === undefined ? "background" : "interactive";
+      return { purpose, runId: null };
     }
     if (Option.isNone(threads)) return { purpose: "interactive" as const, runId: null };
     const threadId = caller.threadId;

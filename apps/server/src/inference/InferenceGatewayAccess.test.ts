@@ -36,13 +36,17 @@ const ready: InferenceServerSnapshot = {
   apiProtocols: ["chat-completions", "messages"],
 };
 
-const layerFor = (snapshot: InferenceServerSnapshot, enabled = true) =>
+const layerFor = (
+  snapshot: InferenceServerSnapshot,
+  enabled = true,
+  inferenceServers: Record<string, { baseUrl: string; apiKey: string; enabled: boolean }> = {
+    [rtx]: { baseUrl: "http://localhost:8888/v1", apiKey: "", enabled },
+  },
+) =>
   InferenceGatewayAccess.layer.pipe(
     Layer.provide([
       ServerSettings.layerTest({
-        inferenceServers: {
-          [rtx]: { baseUrl: "http://localhost:8888/v1", apiKey: "", enabled },
-        },
+        inferenceServers,
         providerInstances: {
           [pi]: { driver: ProviderDriverKind.make("pi"), inferenceServerId: rtx },
         },
@@ -115,6 +119,12 @@ it.effect(
         managed: false,
         reason: "Inference server rtx is disabled.",
       });
+      // A removed server is not a choice to use the cloud either.
+      const removed = yield* Effect.gen(function* () {
+        const service = yield* InferenceGateway.InferenceGatewayAccess;
+        return yield* service.resolve(pi, "chat-completions");
+      }).pipe(Effect.provide(layerFor(ready, true, {})));
+      expect(removed).toMatchObject({ managed: false, local: true });
     }),
 );
 

@@ -226,7 +226,9 @@ export function linkedModelSlug(
   return (
     models.find((model) => model.slug === `t3-${serverId}/${modelId}`)?.slug ??
     models.find((model) => model.slug === modelId)?.slug ??
-    models.find((model) => model.slug.endsWith(`/${modelId}`))?.slug
+    // Another server's gateway entry would send threads to the wrong machine.
+    models.find((model) => !model.slug.startsWith("t3-") && model.slug.endsWith(`/${modelId}`))
+      ?.slug
   );
 }
 

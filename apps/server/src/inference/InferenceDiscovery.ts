@@ -158,11 +158,13 @@ export const make = Effect.gen(function* () {
     Effect.map((tables) => {
       const read = tables.flatMap((table) => (Option.isSome(table) ? [table.value] : []));
       const ports = new Set(read.flatMap((table) => parseProcNetTcp(table).map((l) => l.port)));
+      // Chosen ports first, so a busy machine's OS-assigned ones cannot crowd them out of the cap.
+      const rankPort = (port: number) => (port >= EPHEMERAL_PORT_FLOOR ? port + 65536 : port);
       return {
         searched: read.length > 0,
         ports: [...ports]
           .filter((port) => port >= 1024)
-          .toSorted((left, right) => left - right)
+          .toSorted((left, right) => rankPort(left) - rankPort(right))
           .slice(0, MAX_LISTENERS),
       };
     }),

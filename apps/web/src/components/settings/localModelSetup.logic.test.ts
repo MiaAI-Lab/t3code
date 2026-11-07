@@ -162,6 +162,9 @@ describe("linkedModelSlug", () => {
       "GLM-5.3-Flash",
     );
     expect(linkedModelSlug([{ slug: "t3-rtx/GLM-5" }], rtx, "GLM-5.3-Flash")).toBeUndefined();
+    expect(
+      linkedModelSlug([{ slug: "t3-spark1/GLM-5.3-Flash" }], rtx, "GLM-5.3-Flash"),
+    ).toBeUndefined();
   });
 });
 

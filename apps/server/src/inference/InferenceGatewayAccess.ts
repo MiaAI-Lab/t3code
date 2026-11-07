@@ -32,9 +32,11 @@ function resolveManagedServer(
   if (serverId === undefined) return undefined;
   const snapshot = snapshots.find((candidate) => candidate.id === serverId);
   const name = snapshot?.displayName ?? serverId;
-  // A disabled server makes the instance cloud again; any other gap leaves it local.
+  // Only turning the server off makes the instance cloud again; a removed one still waits.
   const unmanaged = (reason: string) => ({ managed: false, reason, local: true }) as const;
-  if (settings.inferenceServers[serverId]?.enabled !== true) {
+  const config = settings.inferenceServers[serverId];
+  if (config === undefined) return unmanaged(`Inference server ${name} is no longer registered.`);
+  if (!config.enabled) {
     return { managed: false, reason: `Inference server ${name} is disabled.` } as const;
   }
   if (snapshot?.status !== "ready") return unmanaged(`Inference server ${name} is not ready.`);

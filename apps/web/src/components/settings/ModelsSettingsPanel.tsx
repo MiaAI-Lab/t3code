@@ -93,10 +93,12 @@ function LocalModelsSummary({ environment }: { readonly environment: Environment
                 onClick={() =>
                   void navigate({
                     to: "/settings/inference",
-                    search:
-                      server.status === "unreachable" || server.status === "error"
+                    search: {
+                      machine: environmentId,
+                      ...(server.status === "unreachable" || server.status === "error"
                         ? { repair: server.id }
-                        : {},
+                        : {}),
+                    },
                   })
                 }
               >

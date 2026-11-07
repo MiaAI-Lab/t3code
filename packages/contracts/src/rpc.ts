@@ -1,4 +1,10 @@
-import { InferenceServerId, InferenceServerSnapshot } from "./inference.ts";
+import {
+  InferenceServerId,
+  InferenceServerSnapshot,
+  InferenceThreadLastRequest,
+  InferenceUsageSummary,
+  InferenceUsageWindow,
+} from "./inference.ts";
 import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
@@ -38,7 +44,7 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
-import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { NonNegativeInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
   ProviderAuthCancelInput,
   ProviderAuthCompleteInput,
@@ -502,6 +508,8 @@ export const WS_METHODS = {
   serverGetNpmRelease: "server.getNpmRelease",
   serverRefreshProviders: "server.refreshProviders",
   serverRefreshInferenceServers: "server.refreshInferenceServers",
+  serverGetInferenceUsage: "server.getInferenceUsage",
+  serverGetThreadInferenceRequest: "server.getThreadInferenceRequest",
   serverUpdateProvider: "server.updateProvider",
   serverUpdateServer: "server.updateServer",
   serverUpdateServerWithProgress: "server.updateServerWithProgress",
@@ -639,6 +647,18 @@ const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
   payload: Schema.Struct({}),
   success: ServerConfig,
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+const WsServerGetInferenceUsageRpc = Rpc.make(WS_METHODS.serverGetInferenceUsage, {
+  payload: Schema.Struct({ window: InferenceUsageWindow }),
+  success: InferenceUsageSummary,
+  error: Schema.Union([EnvironmentAuthorizationError]),
+});
+
+const WsServerGetThreadInferenceRequestRpc = Rpc.make(WS_METHODS.serverGetThreadInferenceRequest, {
+  payload: Schema.Struct({ threadId: ThreadId }),
+  success: Schema.Struct({ last: Schema.NullOr(InferenceThreadLastRequest) }),
+  error: Schema.Union([EnvironmentAuthorizationError]),
 });
 
 const WsServerRefreshInferenceServersRpc = Rpc.make(WS_METHODS.serverRefreshInferenceServers, {
@@ -2013,6 +2033,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
   WsServerRefreshInferenceServersRpc,
+  WsServerGetInferenceUsageRpc,
+  WsServerGetThreadInferenceRequestRpc,
   WsServerUpdateProviderRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,

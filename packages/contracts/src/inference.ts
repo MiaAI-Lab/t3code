@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema";
-import { IsoDateTime, NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { IsoDateTime, NonNegativeInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 const INFERENCE_SERVER_ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 
@@ -30,6 +30,26 @@ export const InferenceServerLoad = Schema.Struct({
 });
 export type InferenceServerLoad = typeof InferenceServerLoad.Type;
 
+/** Who asked: a user's turn, a scheduled task, or T3's own background writing. */
+export const InferenceRequestPurpose = Schema.Literals(["interactive", "scheduled", "background"]);
+export type InferenceRequestPurpose = typeof InferenceRequestPurpose.Type;
+
+/** Requests T3's gateway is holding or running against this server; other clients are not counted. */
+export const InferenceGatewayQueue = Schema.Struct({
+  capacity: NonNegativeInt,
+  active: Schema.Array(
+    Schema.Struct({ threadId: Schema.optional(ThreadId), purpose: InferenceRequestPurpose }),
+  ),
+  waiting: Schema.Array(
+    Schema.Struct({
+      threadId: Schema.optional(ThreadId),
+      purpose: InferenceRequestPurpose,
+      position: NonNegativeInt,
+    }),
+  ),
+});
+export type InferenceGatewayQueue = typeof InferenceGatewayQueue.Type;
+
 export const InferenceServerSnapshot = Schema.Struct({
   id: InferenceServerId,
   displayName: TrimmedNonEmptyString,
@@ -43,5 +63,52 @@ export const InferenceServerSnapshot = Schema.Struct({
   load: Schema.optional(InferenceServerLoad),
   /** Requests the server says it runs at once; reported only for engines where that meaning is verified. */
   maxConcurrentRequests: Schema.optional(NonNegativeInt),
+  gatewayQueue: Schema.optional(InferenceGatewayQueue),
 });
 export type InferenceServerSnapshot = typeof InferenceServerSnapshot.Type;
+
+const Distribution = Schema.Struct({
+  n: NonNegativeInt,
+  p50: Schema.NullOr(Schema.Number),
+  p95: Schema.NullOr(Schema.Number),
+});
+
+export const InferenceUsageWindow = Schema.Literals(["24h", "7d"]);
+export type InferenceUsageWindow = typeof InferenceUsageWindow.Type;
+
+/** Measured by T3's gateway; requests that bypass it are not included. Missing measurements are excluded from n. */
+export const InferenceUsageRow = Schema.Struct({
+  serverId: InferenceServerId,
+  model: TrimmedNonEmptyString,
+  purpose: InferenceRequestPurpose,
+  requests: NonNegativeInt,
+  failed: NonNegativeInt,
+  promptTokens: NonNegativeInt,
+  cachedPromptTokens: NonNegativeInt,
+  completionTokens: NonNegativeInt,
+  queueWaitMs: Distribution,
+  ttftMs: Distribution,
+  decodeTokensPerSecond: Distribution,
+});
+export type InferenceUsageRow = typeof InferenceUsageRow.Type;
+
+export const InferenceUsageSummary = Schema.Struct({
+  window: InferenceUsageWindow,
+  generatedAt: IsoDateTime,
+  rows: Schema.Array(InferenceUsageRow),
+});
+export type InferenceUsageSummary = typeof InferenceUsageSummary.Type;
+
+/** The latest gateway request a thread made, for its prompt budget. */
+export const InferenceThreadLastRequest = Schema.Struct({
+  serverId: InferenceServerId,
+  model: TrimmedNonEmptyString,
+  completedAt: IsoDateTime,
+  promptTokens: Schema.NullOr(NonNegativeInt),
+  cachedPromptTokens: Schema.NullOr(NonNegativeInt),
+  completionTokens: Schema.NullOr(NonNegativeInt),
+  queueWaitMs: Schema.NullOr(NonNegativeInt),
+  ttftMs: Schema.NullOr(NonNegativeInt),
+  decodeTokensPerSecond: Schema.NullOr(Schema.Number),
+});
+export type InferenceThreadLastRequest = typeof InferenceThreadLastRequest.Type;

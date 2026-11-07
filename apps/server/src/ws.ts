@@ -2480,6 +2480,14 @@ export const layerWsRpc = (
               }),
             ),
           ),
+        // Replaced by the inference gateway's request log.
+        [WS_METHODS.serverGetInferenceUsage]: (input) =>
+          Effect.succeed({
+            window: input.window,
+            generatedAt: "1970-01-01T00:00:00.000Z",
+            rows: [],
+          }),
+        [WS_METHODS.serverGetThreadInferenceRequest]: () => Effect.succeed({ last: null }),
         [WS_METHODS.serverRefreshInferenceServers]: (input) =>
           inferenceServers
             .refresh(input.id)

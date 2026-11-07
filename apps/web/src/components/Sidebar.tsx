@@ -104,6 +104,7 @@ import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../termina
 import { isMacPlatform } from "~/lib/utils";
 import { readLocalApi } from "../localApi";
 import { configuredHostedAppUrl } from "../hostedPairing";
+import { shortProjectNames } from "./sidebar/projectShortNames";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
 import {
   pickableProjectGroups,
@@ -819,6 +820,17 @@ function useSidebarLookups() {
       ),
     ),
   );
+  const shortNames = shortProjectNames(projectGroups.map((group) => group.displayName));
+  const projectShortNameByKey = new Map(
+    projectGroups.flatMap((group) => {
+      const short = shortNames.get(group.displayName);
+      return short === undefined
+        ? []
+        : group.memberProjects.map(
+            (project) => [`${project.environmentId}:${project.id}`, short] as const,
+          );
+    }),
+  );
   const projectGroupByScopeKey = new Map(
     projectGroups.map((project) => [project.projectKey, project] as const),
   );
@@ -837,6 +849,7 @@ function useSidebarLookups() {
     providerEntriesByEnvironment,
     projectByKey,
     projectDisplayNameByKey,
+    projectShortNameByKey,
     projectGroupByScopeKey,
     projectScopeItems,
   };
@@ -904,6 +917,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     providerEntriesByEnvironment,
     projectByKey,
     projectDisplayNameByKey,
+    projectShortNameByKey,
     projectGroupByScopeKey,
     projectScopeItems: lookupProjectScopeItems,
   } = useSidebarLookups();
@@ -1345,6 +1359,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     keepEmptyFolders: (group) =>
       scopedProjectGroups.length > 0 || (group.pinned && !group.archived),
   });
+  // One agent behind every card says nothing per row; it shows once threads use different ones.
+  const cardProviderInstances = new Set(
+    [...pinnedKeys, ...activeKeys, ...visibleWorkingThreads.map(threadShellKey)].flatMap((key) => {
+      const thread = threadByKey.get(key);
+      return thread === undefined
+        ? []
+        : [thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId];
+    }),
+  );
+  const showCardProviderIcons = cardProviderInstances.size > 1;
 
   // Ranked across environments as the palette ranks them, so one
   // environment's list does not sit above another's better matches; rows
@@ -3414,6 +3438,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 `${thread.environmentId}:${thread.projectId}`,
                               ) ?? null
                             }
+                            projectShortName={
+                              projectShortNameByKey.get(
+                                `${thread.environmentId}:${thread.projectId}`,
+                              ) ?? null
+                            }
+                            showProviderIcon={showCardProviderIcons}
                             providerEntryByInstanceId={
                               providerEntriesByEnvironment.get(thread.environmentId) ??
                               EMPTY_PROVIDER_ENTRIES

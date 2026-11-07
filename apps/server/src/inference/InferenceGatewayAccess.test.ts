@@ -51,9 +51,10 @@ const layerFor = (snapshot: InferenceServerSnapshot, enabled = true) =>
         current: Effect.succeed([snapshot]),
       }),
       Layer.mock(McpSessionRegistry.McpSessionRegistry)({
-        issueBackgroundInference: (serverId, holder) =>
+        issueBackgroundInference: ({ id: serverId, config }, holder) =>
           Effect.succeed({
             serverId,
+            pinnedTo: config.baseUrl,
             baseUrl: "http://t3/inference/rtx/v1",
             token: holder === undefined ? "bg" : `instance:${holder}`,
           }),
@@ -108,6 +109,9 @@ it.effect("says why a linked server is not managed, and issues instance credenti
       undefined,
     );
     const held = yield* Effect.scoped(service.instanceCredential(pi, "chat-completions"));
-    expect(held?.credential.token).toBe(`instance:${pi}`);
+    expect(held?.credential).toMatchObject({
+      token: `instance:${pi}`,
+      pinnedTo: "http://localhost:8888/v1",
+    });
   }).pipe(Effect.provide(layerFor(ready))),
 );

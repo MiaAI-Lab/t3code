@@ -67,18 +67,26 @@ const make = Effect.gen(function* () {
   const registry = yield* InferenceServerRegistry.InferenceServerRegistry;
   const credentials = yield* McpSessionRegistry.McpSessionRegistry;
 
-  const resolve = Effect.fn("InferenceGatewayAccess.resolve")(function* (
+  // Traced by the named callers below.
+  const resolveWithSettings = Effect.fnUntraced(function* (
     instanceId: ProviderInstanceId,
     protocol: InferenceApiProtocol,
   ) {
     const settings = yield* settingsService.getSettings.pipe(Effect.option);
     if (settings._tag === "None") return undefined;
-    return resolveManagedServer(
+    const resolution = resolveManagedServer(
       settings.value,
       yield* registry.current,
       settings.value.providerInstances[instanceId]?.inferenceServerId,
       protocol,
     );
+    return resolution === undefined ? undefined : { resolution, settings: settings.value };
+  });
+  const resolve = Effect.fn("InferenceGatewayAccess.resolve")(function* (
+    instanceId: ProviderInstanceId,
+    protocol: InferenceApiProtocol,
+  ) {
+    return (yield* resolveWithSettings(instanceId, protocol))?.resolution;
   });
   const managedServer = (instanceId: ProviderInstanceId, protocol: InferenceApiProtocol) =>
     resolve(instanceId, protocol).pipe(
@@ -90,12 +98,13 @@ const make = Effect.gen(function* () {
     protocol: InferenceApiProtocol,
     holder: ProviderInstanceId | undefined,
   ) {
-    const server = yield* managedServer(instanceId, protocol);
-    if (server === undefined) return undefined;
-    const credential = yield* credentials.issueBackgroundInference(
-      server.serverId as InferenceServerId,
-      holder,
-    );
+    const resolved = yield* resolveWithSettings(instanceId, protocol);
+    if (resolved?.resolution.managed !== true) return undefined;
+    const { server } = resolved.resolution;
+    const id = server.serverId as InferenceServerId;
+    const config = resolved.settings.inferenceServers[id];
+    if (config === undefined) return undefined;
+    const credential = yield* credentials.issueBackgroundInference({ id, config }, holder);
     return { server, credential };
   });
 

@@ -1,5 +1,6 @@
 import type {
   InferenceApiProtocol,
+  InferenceServerConfig,
   InferenceServerId,
   ServerSettings,
   ThreadId,
@@ -70,6 +71,8 @@ export interface RouteTarget {
 export interface RouteRequest {
   /** The server the credential is for. */
   readonly primary: InferenceServerId;
+  /** The primary's settings when the credential was issued, used instead of its current ones. */
+  readonly pinned: InferenceServerConfig;
   readonly threadId?: ThreadId | undefined;
   readonly protocol: InferenceApiProtocol;
   readonly model: string;
@@ -124,9 +127,17 @@ const make = Effect.gen(function* () {
       snapshots.find((candidate) => candidate.id === id);
     const ready = (id: InferenceServerId) => snapshotOf(id)?.status === "ready";
 
+    const live = settings[request.primary];
+    // The registry probes the current settings, which say nothing about a moved or disabled pin.
+    const pinnedProbed =
+      live?.enabled === true && InferenceServerRegistry.routesAlike(request.pinned, live);
     const target = Effect.fnUntraced(function* (serverId: InferenceServerId) {
-      const config = settings[serverId];
-      const endpoint = config?.enabled === true ? parseEndpoint(config.baseUrl) : undefined;
+      const isPrimary = serverId === request.primary;
+      const config = isPrimary ? request.pinned : settings[serverId];
+      const endpoint =
+        config !== undefined && (isPrimary || config.enabled)
+          ? parseEndpoint(config.baseUrl)
+          : undefined;
       if (config === undefined || endpoint === undefined) return Option.none<RouteTarget>();
       const apiKey = yield* requireSettingsSecret(secrets, config.apiKey).pipe(
         Effect.map((value) => value.trim()),
@@ -142,7 +153,7 @@ const make = Effect.gen(function* () {
         serverId,
         base: endpoint,
         apiKey,
-        ready: ready(serverId),
+        ready: isPrimary && !pinnedProbed ? true : ready(serverId),
         fallbackFrom: serverId === request.primary ? null : request.primary,
       });
     });
@@ -154,7 +165,7 @@ const make = Effect.gen(function* () {
         message: "This inference server is off or not registered.",
       });
     }
-    const fallbackId = settings[request.primary]?.fallbackServerId;
+    const fallbackId = request.pinned.fallbackServerId;
     const allowed = (id: InferenceServerId | undefined) =>
       id === request.primary || (id !== undefined && id === fallbackId);
 

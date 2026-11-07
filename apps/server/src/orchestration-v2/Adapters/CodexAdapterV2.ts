@@ -838,8 +838,25 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
   },
 );
 
+/**
+ * A shared app-server holds the first thread's gateway credential in its environment, so a linked
+ * instance opens one per thread: each keeps the routing it started with, and new threads follow
+ * the current link.
+ */
+const codexCapabilities = (linkedToInferenceServer: boolean) =>
+  linkedToInferenceServer
+    ? {
+        ...CodexProviderCapabilitiesV2,
+        sessions: {
+          ...CodexProviderCapabilitiesV2.sessions,
+          supportsMultipleProviderThreadsPerSession: false,
+        },
+      }
+    : CodexProviderCapabilitiesV2;
+
 function providerSession(input: {
   readonly providerSessionId: OrchestrationV2ProviderSession["id"];
+  readonly capabilities: OrchestrationV2ProviderSession["capabilities"];
   readonly providerInstanceId: ProviderInstanceId;
   readonly cwd: string | null;
   readonly model: string;
@@ -852,7 +869,7 @@ function providerSession(input: {
     status: "ready",
     cwd: input.cwd ?? process.cwd(),
     model: input.model,
-    capabilities: CodexProviderCapabilitiesV2,
+    capabilities: input.capabilities,
     createdAt: input.now,
     updatedAt: input.now,
     lastError: null,
@@ -1655,7 +1672,13 @@ export type CodexAdapterV2DriverEnv =
   | ServerConfig;
 
 export const createCodexAdapterV2 = Effect.fn("CodexAdapterV2.createCodexAdapterV2")(function* (
-  { instanceId, environment, enabled, config }: ProviderAdapterDriverCreateInput<CodexSettings>,
+  {
+    instanceId,
+    environment,
+    enabled,
+    config,
+    inferenceServerId,
+  }: ProviderAdapterDriverCreateInput<CodexSettings>,
   hooks: Pick<CodexAdapterV2Options, "onUsageLimits" | "resolveRuntime" | "compatibility"> = {},
 ) {
   const clientFactory = yield* CodexAppServerClientFactory;
@@ -1697,6 +1720,7 @@ export const createCodexAdapterV2 = Effect.fn("CodexAdapterV2.createCodexAdapter
     serverConfig,
     continuationRequests,
     gateway: yield* makeCodexGatewaySource(instanceId),
+    linkedToInferenceServer: inferenceServerId !== undefined,
     ...hooks,
   });
 });
@@ -1708,6 +1732,7 @@ export interface CodexAdapterV2Options {
   readonly clientFactory: CodexAppServerClientFactoryShape;
   /** Routes a linked inference server through T3's gateway; absent means unmanaged. */
   readonly gateway?: CodexGatewaySource;
+  readonly linkedToInferenceServer?: boolean;
   readonly onUsageLimits?: ManagedServerProvider["applyUsageLimits"];
   readonly resolveRuntime?: Effect.Effect<CodexEffectiveRuntime, ProviderSetupError, Scope.Scope>;
   readonly compatibility?: (
@@ -1732,13 +1757,14 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
   const readMcpSession = (threadId: ThreadId | null) =>
     threadId === null ? Effect.undefined : mcpSessions.read(threadId);
   const { clientFactory, digest, fileSystem, idAllocator, serverConfig } = adapterOptions;
+  const capabilities = codexCapabilities(adapterOptions.linkedToInferenceServer === true);
   const continuationRequests = adapterOptions.continuationRequests;
 
   return ProviderAdapter.ProviderAdapterV2.of({
     instanceId: adapterOptions.instanceId,
     driver: CODEX_PROVIDER,
     getCapabilities: Effect.fn("CodexAdapterV2.getCapabilities")(function () {
-      return Effect.succeed(CodexProviderCapabilitiesV2);
+      return Effect.succeed(capabilities);
     }),
     planSelectionTransition: Effect.fn("CodexAdapterV2.planSelectionTransition")(function () {
       return Effect.succeed(turnScopedSelectionTransition());
@@ -1861,6 +1887,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         const now = yield* DateTime.now;
         const session = providerSession({
           providerSessionId: input.providerSessionId,
+          capabilities,
           providerInstanceId: adapterOptions.instanceId,
           cwd: input.runtimePolicy.cwd,
           model: input.modelSelection.model,

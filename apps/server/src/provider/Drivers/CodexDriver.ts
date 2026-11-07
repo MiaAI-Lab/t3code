@@ -136,6 +136,7 @@ export const CodexDriver: ProviderDriver<
     environment,
     enabled,
     config,
+    inferenceServerId,
   }) {
     if (config.setupMode === "managed")
       return yield* makeManagedCodexProvider({
@@ -145,6 +146,7 @@ export const CodexDriver: ProviderDriver<
         environment,
         enabled,
         config,
+        inferenceServerId,
       });
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const resetCreditCoordinator = yield* ResetCreditCoordinator.ResetCreditCoordinator;
@@ -212,6 +214,7 @@ export const CodexDriver: ProviderDriver<
         environment,
         enabled,
         config,
+        inferenceServerId,
       },
       {
         onUsageLimits: (update) => snapshot.applyUsageLimits(update),

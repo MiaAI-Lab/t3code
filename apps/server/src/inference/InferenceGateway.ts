@@ -31,7 +31,6 @@ import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as InferenceRequests from "../persistence/InferenceRequests.ts";
 import { requireSettingsSecret } from "../secrets/settingsSecretValue.ts";
-import * as Settings from "../serverSettings.ts";
 import * as InferenceAdmission from "./InferenceAdmission.ts";
 import * as InferenceRouting from "./InferenceRouting.ts";
 import { isPreDispatchFailure, PRIMARY_WAIT_MS } from "./InferenceRouting.ts";
@@ -208,7 +207,6 @@ export class InferenceGateway extends Context.Service<
 
 const make = Effect.gen(function* () {
   const credentials = yield* McpSessionRegistry.McpSessionRegistry;
-  const settingsService = yield* Settings.ServerSettingsService;
   const secrets = yield* SecretResolver.SecretResolver;
   const admission = yield* InferenceAdmission.InferenceAdmission;
   const requestLog = yield* InferenceRequests.InferenceRequestLog;
@@ -330,12 +328,9 @@ const make = Effect.gen(function* () {
     if (caller.serverId !== serverId) {
       return errorResponse(403, "permission_error", "This credential is for another server.");
     }
-    const config = yield* settingsService.getSettings.pipe(
-      Effect.map((settings) => settings.inferenceServers[serverId]),
-      Effect.orElseSucceed(() => undefined),
-    );
-    const endpoint = config?.enabled === true ? parseBaseUrl(config.baseUrl) : undefined;
-    if (config === undefined || endpoint === undefined || "error" in endpoint) {
+    const config = caller.pinned;
+    const endpoint = parseBaseUrl(config.baseUrl);
+    if ("error" in endpoint) {
       return errorResponse(404, "not_found", "This inference server is off or not registered.");
     }
     const apiKey = yield* requireSettingsSecret(secrets, config.apiKey).pipe(
@@ -439,6 +434,7 @@ const make = Effect.gen(function* () {
     const plan = yield* routing
       .plan({
         primary: serverId,
+        pinned: config,
         threadId: caller.threadId,
         protocol: protocol!,
         model: prepared.model,

@@ -538,6 +538,7 @@ function fallbackTextGenerationProvider(
     {
       defaultModelSelection: settings.defaultModelSelection,
       policy: settings.textGenerationFallback,
+      inferenceServers: settings.inferenceServers,
     },
   );
   return fallback === null ? settings : { ...settings, textGenerationModelSelection: fallback };

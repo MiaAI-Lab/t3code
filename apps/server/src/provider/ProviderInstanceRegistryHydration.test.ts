@@ -1,5 +1,6 @@
 import {
   DEFAULT_SERVER_SETTINGS,
+  InferenceServerId,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -96,6 +97,32 @@ describe("deriveProviderInstanceConfigMap", () => {
     const merged = deriveProviderInstanceConfigMap(settings);
 
     expect(merged[instanceId]).toBe(settings.providerInstances[instanceId]);
+  });
+  it("marks an instance local only while its linked inference server is enabled", () => {
+    const rtx = InferenceServerId.make("rtx");
+    const pi = ProviderDriverKind.make("pi");
+    const derive = (inferenceServers: ServerSettings["inferenceServers"]) =>
+      deriveProviderInstanceConfigMap(
+        settingsWith({
+          providerInstances: {
+            [instanceId]: { driver: pi, inference: "local", inferenceServerId: rtx },
+          },
+          inferenceServers,
+        }),
+      )[instanceId];
+    const server = { baseUrl: "http://rtx:8888/v1", apiKey: "" };
+
+    expect(derive({ [rtx]: { ...server, enabled: true } })).toEqual({
+      driver: pi,
+      inference: "local",
+      inferenceServerId: rtx,
+    });
+    // The link stays visible, but a server that is off or gone does not vouch for locality.
+    expect(derive({ [rtx]: { ...server, enabled: false } })).toEqual({
+      driver: pi,
+      inferenceServerId: rtx,
+    });
+    expect(derive({})).toEqual({ driver: pi, inferenceServerId: rtx });
   });
 });
 

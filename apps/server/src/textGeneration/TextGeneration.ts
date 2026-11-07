@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type { ModelSelection, ProviderInstanceId, ServerProvider } from "@t3tools/contracts";
 import {
+  isLocalProviderInstance,
   isProviderAvailable,
   isProviderTextGenerationCapable,
   resolveProjectProviderInstanceEnabled,
@@ -116,7 +117,9 @@ export const make = Effect.gen(function* () {
       !exhaustedUsageWindow(provider, now, model);
     const localPolicy =
       settings.textGenerationFallback !== "any" &&
-      Object.values(settings.providerInstances).some((instance) => instance.inference === "local");
+      Object.values(settings.providerInstances).some((instance) =>
+        isLocalProviderInstance(instance, settings.inferenceServers),
+      );
     const noLocalModel = new TextGenerationError({
       operation,
       detail:
@@ -161,7 +164,11 @@ export const make = Effect.gen(function* () {
                   usableElsewhere(provider, defaultTextGenerationModel(driver))
                 );
               },
-              { includeConfiguredInstances: true, policy: settings.textGenerationFallback },
+              {
+                includeConfiguredInstances: true,
+                policy: settings.textGenerationFallback,
+                inferenceServers: settings.inferenceServers,
+              },
             ));
       if (fallback !== null) selection = fallback;
       else if (localPolicy || operation === "generateReviewGuide") return yield* noLocalModel;

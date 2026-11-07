@@ -7,6 +7,7 @@ import {
   defaultInstanceIdForDriver,
   globalIdleCompaction,
   type IdleCompactionMode,
+  isLocalProviderInstance,
   isProviderAvailable,
   isUnconfiguredDefaultInstanceEnabled,
   resolveProjectProviderInstanceEnabled,
@@ -76,12 +77,13 @@ export function fallbackTextGenerationModelSelection(
     readonly includeConfiguredInstances?: boolean;
     readonly defaultModelSelection?: ModelSelection | null;
     readonly policy?: TextGenerationFallback;
+    readonly inferenceServers?: ServerSettings["inferenceServers"];
   },
 ): ModelSelection | null {
   const policy = options?.policy ?? "any";
   if (policy === "none") return null;
   const isLocal = (instanceId: ProviderInstanceId) =>
-    providerInstances[instanceId]?.inference === "local";
+    isLocalProviderInstance(providerInstances[instanceId], options?.inferenceServers);
   const allCandidates = [
     ...TEXT_GENERATION_FALLBACK_DRIVERS.map(
       (driver) => [defaultInstanceIdForDriver(driver), driver] as const,
@@ -96,8 +98,8 @@ export function fallbackTextGenerationModelSelection(
   ];
   const localCandidates = allCandidates.filter(([instanceId]) => isLocal(instanceId));
   // Users who never marked an instance local keep the cross-provider fallback they had.
-  const anyMarkedLocal = Object.values(providerInstances).some(
-    (instance) => instance?.inference === "local",
+  const anyMarkedLocal = Object.values(providerInstances).some((instance) =>
+    isLocalProviderInstance(instance, options?.inferenceServers),
   );
   const candidates =
     policy === "local" && anyMarkedLocal

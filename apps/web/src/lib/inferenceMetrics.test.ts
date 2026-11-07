@@ -74,7 +74,7 @@ describe("inference metrics", () => {
     expect(lastRequestObservations(measured)).toEqual([]);
     expect(
       lastRequestObservations({ ...measured, staticPrefixChanged: true, serverChanged: false }),
-    ).toEqual(["Tool prefix changed since the previous request"]);
+    ).toEqual(["Instructions or tools changed since the previous request"]);
     expect(formatLastRequestCached(measured)).toBe("cached 25%");
     expect(formatLastRequestCached({ ...measured, cachedPromptTokens: null })).toBeNull();
   });

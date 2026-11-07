@@ -62,7 +62,7 @@ export function formatLastRequestServer(
 export function lastRequestObservations(last: InferenceThreadLastRequest): ReadonlyArray<string> {
   return [
     ...(last.staticPrefixChanged === true
-      ? ["Tool prefix changed since the previous request"]
+      ? ["Instructions or tools changed since the previous request"]
       : []),
     ...(last.serverChanged === true ? ["Different server than the previous request"] : []),
   ];

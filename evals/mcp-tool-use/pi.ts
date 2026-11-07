@@ -115,8 +115,18 @@ const piInput = (name: string, input: unknown) => {
   return input;
 };
 
-/** The runner's Anthropic-shaped transcript as Pi's chat completion messages. */
-export const chatMessages = (messages: ReadonlyArray<ApiMessage>) =>
+/** How a harness replays one tool call and its result; Pi's by default. */
+export type ChatReplay = {
+  readonly call: (id: string, name: string, input: unknown) => { name: string; input: unknown };
+  readonly result: (id: string, content: string) => string;
+};
+const PI_REPLAY: ChatReplay = {
+  call: (_, name, input) => ({ name, input: piInput(name, input) }),
+  result: (_, content) => content,
+};
+
+/** The runner's Anthropic-shaped transcript as chat completion messages. */
+export const chatMessages = (messages: ReadonlyArray<ApiMessage>, replay: ChatReplay = PI_REPLAY) =>
   messages.flatMap((message): Array<Record<string, unknown>> => {
     if (message.role === "assistant") {
       const thinking = message.content.filter((block) => block.type === "thinking");
@@ -138,14 +148,14 @@ export const chatMessages = (messages: ReadonlyArray<ApiMessage>) =>
             : {}),
           ...(calls.length > 0
             ? {
-                tool_calls: calls.map((block) => ({
-                  id: block.id,
-                  type: "function",
-                  function: {
-                    name: block.name,
-                    arguments: JSON.stringify(piInput(valueText(block.name), block.input)),
-                  },
-                })),
+                tool_calls: calls.map((block) => {
+                  const call = replay.call(valueText(block.id), valueText(block.name), block.input);
+                  return {
+                    id: block.id,
+                    type: "function",
+                    function: { name: call.name, arguments: JSON.stringify(call.input) },
+                  };
+                }),
               }
             : {}),
         },
@@ -156,7 +166,7 @@ export const chatMessages = (messages: ReadonlyArray<ApiMessage>) =>
       .map((block) => ({
         role: "tool",
         tool_call_id: block.tool_use_id,
-        content: valueText(block.content),
+        content: replay.result(valueText(block.tool_use_id), valueText(block.content)),
       }));
     const texts = message.content
       .filter((block) => block.type === "text")
@@ -190,11 +200,21 @@ export const fromChatCompletion = (response: unknown) => {
       : []),
     ...calls.map((call) => {
       const fn = isRecord(call.function) ? call.function : {};
+      const input = parseArguments(fn.arguments);
       return {
         type: "tool_use",
         id: valueText(call.id),
         name: valueText(fn.name),
-        input: parseArguments(fn.arguments),
+        input,
+        // Arguments that are not a JSON object reach the tool as `{ arguments: <raw> }`.
+        ...(isRecord(input) &&
+        Object.keys(input).length === 1 &&
+        typeof input.arguments === "string" &&
+        typeof fn.arguments === "string" &&
+        fn.arguments.trim() !== "" &&
+        input.arguments === fn.arguments
+          ? { malformed: true }
+          : {}),
       };
     }),
   ];

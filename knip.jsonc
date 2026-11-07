@@ -148,6 +148,10 @@
       // Alchemy loads src/worker.ts as the Worker entry and reads its default export.
       "entry": ["alchemy.run.ts!", "src/persistence/schema.ts!", "src/worker.ts!"],
     },
+    "evals": {
+      // capture-local.ts runs this MCP stub by path, as the harness under capture spawns it.
+      "entry": ["mcp-tool-use/mcp-stub.ts"],
+    },
     "packages/*": {
       // These workspace packages are private to this monorepo.
       "includeEntryExports": true,

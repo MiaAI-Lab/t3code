@@ -8,7 +8,10 @@ import type { createServerEnvironmentAtoms } from "./server.ts";
 
 type ServerEnvironmentAtoms<R, E> = Pick<
   ReturnType<typeof createServerEnvironmentAtoms<R, E>>,
-  "inferenceServersValueAtom" | "getInferenceUsage" | "getThreadInferenceRequest"
+  | "inferenceServersValueAtom"
+  | "getInferenceUsage"
+  | "getThreadInferenceRequest"
+  | "getThreadInferenceStop"
 >;
 
 interface ThreadKey {
@@ -96,7 +99,29 @@ export function createInferenceAtoms<R, E>(server: ServerEnvironmentAtoms<R, E>)
     ).pipe(Atom.withLabel(`inference-thread-request:${environmentId}:${threadId}`)),
   );
 
+  /**
+   * The latest reply T3's gateway stopped in a thread. `runKey` names the thread's latest run and
+   * its status, so the stop is read again when a run ends rather than polled.
+   */
+  const threadInferenceStopAtom = Atom.family(
+    ({ environmentId, threadId }: ThreadKey & { readonly runKey: string }) =>
+      Atom.make((get) =>
+        Effect.promise(() =>
+          runAtomCommand(
+            get.registry,
+            server.getThreadInferenceStop,
+            { environmentId, input: { threadId } },
+            { reportFailure: false },
+          ),
+        ).pipe(Effect.flatMap(settled)),
+      ).pipe(
+        Atom.setIdleTTL(60_000),
+        Atom.withLabel(`inference-thread-stop:${environmentId}:${threadId}`),
+      ),
+  );
+
   return {
+    threadInferenceStopAtom,
     threadInferenceWaitAtom,
     hasInferenceServersAtom,
     environmentsWithInferenceServersAtom,

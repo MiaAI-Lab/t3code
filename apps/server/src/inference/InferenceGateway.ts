@@ -7,6 +7,7 @@ import {
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Digest from "effect/crypto/Digest";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
@@ -32,6 +33,13 @@ import * as InferenceRequests from "../persistence/InferenceRequests.ts";
 import { requireSettingsSecret } from "../secrets/settingsSecretValue.ts";
 import * as InferenceAdmission from "./InferenceAdmission.ts";
 import * as InferenceRouting from "./InferenceRouting.ts";
+import * as InferenceStops from "./InferenceStops.ts";
+import {
+  FIRST_CONTENT_TIMEOUT_MS,
+  IDLE_TIMEOUT_MS,
+  makeInferenceWatchdog,
+  type WatchdogReason,
+} from "./InferenceWatchdog.ts";
 import { isPreDispatchFailure } from "./InferenceRouting.ts";
 import { parseBaseUrl } from "./InferenceServerRegistry.ts";
 import { makeUsageMeter } from "./inferenceUsage.ts";
@@ -209,6 +217,24 @@ function prepareBody(protocol: InferenceApiProtocol, raw: Uint8Array) {
   return { ...shape, body: raw };
 }
 
+const STOP_MESSAGES: Record<WatchdogReason, string> = {
+  loop: "T3 Code stopped this reply: the model kept repeating the same text.",
+  "reasoning-limit": "T3 Code stopped this reply: the model reasoned at length without answering.",
+  idle: "T3 Code stopped this reply: the model server stopped sending anything.",
+};
+
+/** The protocol's own error event, so the harness ends the turn instead of taking it as done. */
+function stopNotice(protocol: InferenceApiProtocol, reason: WatchdogReason): Uint8Array {
+  const message = STOP_MESSAGES[reason];
+  const event =
+    protocol === "responses"
+      ? `event: error\ndata: ${JSON.stringify({ type: "error", code: `t3_watchdog_${reason}`, message })}\n\n`
+      : protocol === "messages"
+        ? `event: error\ndata: ${JSON.stringify({ type: "error", error: { type: "api_error", message } })}\n\n`
+        : `data: ${JSON.stringify({ error: { message, type: "t3_watchdog", code: reason } })}\n\n`;
+  return new TextEncoder().encode(event);
+}
+
 export class InferenceGateway extends Context.Service<
   InferenceGateway,
   {
@@ -227,6 +253,7 @@ const make = Effect.gen(function* () {
   const random = yield* SecureRandom.SecureRandom;
   const digest = yield* Digest.Digest;
   const routing = yield* InferenceRouting.InferenceRouting;
+  const stops = yield* InferenceStops.InferenceStops;
   const threads = yield* Effect.serviceOption(ThreadManagementService.ThreadManagementService);
   // Redirects are refused, not followed, so the upstream key never reaches another origin.
   const client = (yield* HttpClient.HttpClient).pipe(
@@ -402,7 +429,30 @@ const make = Effect.gen(function* () {
           )).slice(0, 16);
     const { purpose, runId, parentRunId } = yield* attribute(caller);
     const requestId = yield* random.uuidV4();
-    const meter = makeUsageMeter(protocol!, prepared.streaming);
+    // Only streamed replies can run away; a turned-off watchdog leaves the server to its limits.
+    const watching = prepared.streaming && config.watchdog?.enabled !== false;
+    const watchdog = makeInferenceWatchdog();
+    let pendingStop: WatchdogReason | undefined;
+    let progressed = false;
+    const meter = makeUsageMeter(
+      protocol!,
+      prepared.streaming,
+      watching
+        ? (channel, text) => {
+            progressed = true;
+            pendingStop ??= watchdog.onDelta(channel, text);
+          }
+        : undefined,
+    );
+    const stopSignal = yield* Deferred.make<WatchdogReason>();
+    const stoppedFor = yield* Ref.make<WatchdogReason | undefined>(undefined);
+    const lastProgressAt = yield* Ref.make(receivedAt);
+    const stopFor = (reason: WatchdogReason) =>
+      Ref.modify(stoppedFor, (current) => [current === undefined, current ?? reason]).pipe(
+        Effect.flatMap((first) =>
+          first ? Deferred.succeed(stopSignal, reason).pipe(Effect.asVoid) : Effect.void,
+        ),
+      );
     const milestones = yield* Ref.make<{
       admittedAt?: number;
       dispatchedAt?: number;
@@ -453,6 +503,15 @@ const make = Effect.gen(function* () {
     }, Effect.uninterruptible);
     // The request scope closes even when the body is never read, e.g. the client left before it.
     yield* Scope.addFinalizer(yield* Scope.Scope, finish("cancelled"));
+    // A harness retrying the reply the watchdog just stopped would only run it away again.
+    if (runId !== null && (yield* stops.refusesRetry(runId, receivedAt))) {
+      yield* finish("rejected");
+      return errorResponse(
+        400,
+        "t3_watchdog_stopped",
+        "T3 Code stopped this run's last reply. Send a new message to continue.",
+      );
+    }
 
     const plan = yield* routing
       .plan({
@@ -516,17 +575,50 @@ const make = Effect.gen(function* () {
       return errorResponse(502, "upstream_error", "The inference server answered with a redirect.");
     }
     const succeeded = upstream.status < 400;
+    if (watching && succeeded) {
+      yield* Ref.set(lastProgressAt, yield* Clock.currentTimeMillis);
+      // Lives in `lifetime`, so it ends with the request however that ends.
+      yield* Effect.gen(function* () {
+        while (true) {
+          yield* Effect.sleep("5 seconds");
+          const now = yield* Clock.currentTimeMillis;
+          const marks = yield* Ref.get(milestones);
+          const limit =
+            marks.firstContentAt === undefined ? FIRST_CONTENT_TIMEOUT_MS : IDLE_TIMEOUT_MS;
+          if (now - (yield* Ref.get(lastProgressAt)) > limit) return yield* stopFor("idle");
+        }
+      }).pipe(Effect.forkIn(lifetime));
+    }
+    const recordStop = Effect.fn("InferenceGateway.recordStop")(function* (reason: WatchdogReason) {
+      const target = yield* Ref.get(served);
+      yield* stops.record({
+        threadId: caller.threadId,
+        runId,
+        serverId: target.serverId,
+        model: prepared.model,
+        reason,
+        atMs: yield* Clock.currentTimeMillis,
+      });
+    });
     const body = upstream.stream.pipe(
       // Untraced per chunk: the request span already covers the stream.
-      Stream.tap((chunk) =>
-        meter.push(chunk)
-          ? Clock.currentTimeMillis.pipe(
-              Effect.flatMap((now) =>
-                Ref.update(milestones, (marks) => ({ ...marks, firstContentAt: now })),
-              ),
-            )
-          : Effect.void,
-      ),
+      Stream.tap((chunk) => {
+        const first = meter.push(chunk);
+        const moved = progressed;
+        progressed = false;
+        const reason = pendingStop;
+        return Effect.gen(function* () {
+          if (first || moved) {
+            const now = yield* Clock.currentTimeMillis;
+            if (first)
+              yield* Ref.update(milestones, (marks) => ({ ...marks, firstContentAt: now }));
+            yield* Ref.set(lastProgressAt, now);
+          }
+          if (reason !== undefined) yield* stopFor(reason);
+        });
+      }),
+      (stream) =>
+        watching ? stream.pipe(Stream.interruptWhen(Deferred.await(stopSignal))) : stream,
       (stream) => {
         if (prepared.namespaces === undefined) return stream;
         const restorer = makeResponseRestorer(prepared.namespaces, prepared.streaming);
@@ -536,17 +628,33 @@ const make = Effect.gen(function* () {
           Stream.filter((chunk) => chunk.length > 0),
         );
       },
+      // A stopped reply ends with the protocol's error, so the harness never takes it as done.
+      Stream.concat(
+        Stream.unwrap(
+          Ref.get(stoppedFor).pipe(
+            Effect.map((reason) =>
+              reason === undefined ? Stream.empty : Stream.make(stopNotice(protocol!, reason)),
+            ),
+          ),
+        ),
+      ),
       Stream.onExit((exit) =>
-        finish(
-          Exit.isSuccess(exit)
-            ? succeeded
-              ? "completed"
-              : "failed"
-            : Exit.hasInterrupts(exit)
-              ? meter.finished() && succeeded
-                ? "completed"
-                : "cancelled"
-              : "failed",
+        Ref.get(stoppedFor).pipe(
+          Effect.flatMap((reason) =>
+            reason !== undefined
+              ? recordStop(reason).pipe(Effect.andThen(finish("failed")))
+              : finish(
+                  Exit.isSuccess(exit)
+                    ? succeeded
+                      ? "completed"
+                      : "failed"
+                    : Exit.hasInterrupts(exit)
+                      ? meter.finished() && succeeded
+                        ? "completed"
+                        : "cancelled"
+                      : "failed",
+                ),
+          ),
         ),
       ),
     );

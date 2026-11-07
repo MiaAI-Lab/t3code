@@ -42,6 +42,7 @@ import * as InferenceRequests from "../persistence/InferenceRequests.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as InferenceAdmission from "./InferenceAdmission.ts";
 import * as InferenceGateway from "./InferenceGateway.ts";
+import * as InferenceStops from "./InferenceStops.ts";
 import * as InferenceRouting from "./InferenceRouting.ts";
 import * as InferenceServerRegistry from "./InferenceServerRegistry.ts";
 
@@ -166,6 +167,27 @@ const makeHarness = Effect.fnUntraced(function* (threads: Layer.Layer<never> = L
     ),
     HttpRouter.add(
       "POST",
+      "/loop/v1/chat/completions",
+      Effect.as(
+        capture,
+        HttpServerResponse.stream(
+          Stream.concat(
+            // The same text over and over and never a terminal event: only the watchdog ends it.
+            Stream.range(1, 40).pipe(
+              Stream.map(() =>
+                encoder.encode(
+                  `data: ${JSON.stringify({ choices: [{ delta: { content: "[],".repeat(100) } }] })}\n\n`,
+                ),
+              ),
+            ),
+            Stream.never,
+          ),
+          { contentType: "text/event-stream" },
+        ),
+      ),
+    ),
+    HttpRouter.add(
+      "POST",
       "/hang/v1/chat/completions",
       Effect.as(
         capture,
@@ -199,6 +221,7 @@ const makeHarness = Effect.fnUntraced(function* (threads: Layer.Layer<never> = L
       ),
       Layer.provideMerge(NodeHttpServer.layerTest),
       Layer.provideMerge(ServerSettings.layerTest()),
+      Layer.provideMerge(InferenceStops.layer),
       Layer.provide([
         NodeCrypto.layer,
         Layer.succeed(InferenceRequests.InferenceRequestLog, {
@@ -240,6 +263,7 @@ const makeHarness = Effect.fnUntraced(function* (threads: Layer.Layer<never> = L
   const servers = {
     [InferenceServerId.make("rtx")]: server("up"),
     [InferenceServerId.make("hang")]: server("hang"),
+    [InferenceServerId.make("loop")]: server("loop"),
     [InferenceServerId.make("redirect")]: server("redirect"),
     [InferenceServerId.make("dead")]: {
       baseUrl: `http://127.0.0.1:${yield* closedPort}/v1`,
@@ -258,6 +282,7 @@ const makeHarness = Effect.fnUntraced(function* (threads: Layer.Layer<never> = L
     "thread-token": caller("rtx", thread),
     "background-token": caller("rtx"),
     "hang-token": caller("hang", thread),
+    "loop-token": caller("loop", thread),
     "redirect-token": caller("redirect"),
     "dead-token": caller("dead", thread),
     "opencode-token": { ...caller("rtx"), providerInstanceId: ProviderInstanceId.make("opencode") },
@@ -268,7 +293,8 @@ const makeHarness = Effect.fnUntraced(function* (threads: Layer.Layer<never> = L
   });
   const call = (path: string, init: RequestInit = {}) =>
     Effect.promise(() => fetch(`${origin}/inference/${path}`, init));
-  return { call, seen, records, hangStarted, settings };
+  const stops = Context.get(services, InferenceStops.InferenceStops);
+  return { call, seen, records, hangStarted, settings, stops };
 });
 
 const post = (token: string, body: unknown, headers: Record<string, string> = {}) => ({
@@ -276,6 +302,20 @@ const post = (token: string, body: unknown, headers: Record<string, string> = {}
   headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...headers },
   body: JSON.stringify(body),
 });
+
+it.live("stops a looping reply with the protocol's error, records why, and frees the server", () =>
+  Effect.gen(function* () {
+    const { call, records, stops } = yield* makeHarness();
+    const response = yield* call(
+      "loop/v1/chat/completions",
+      post("loop-token", { model: "m", stream: true, messages: [] }),
+    );
+    const text = yield* Effect.promise(() => response.text());
+    expect(text).toContain(`"type":"t3_watchdog","code":"loop"`);
+    expect(yield* Queue.take(records)).toMatchObject({ status: "failed", threadId: thread });
+    expect(yield* stops.latest(thread)).toMatchObject({ reason: "loop", model: "m" });
+  }),
+);
 
 it.live("streams chat completions with only the server's key and records usage", () =>
   Effect.gen(function* () {
@@ -655,6 +695,7 @@ const makeLifecycle = Effect.fnUntraced(function* (options: LifecycleOptions = {
         Layer.mock(InferenceServerRegistry.InferenceServerRegistry)({
           current: Effect.sync(() => snapshots.current),
         }),
+        InferenceStops.layer,
         NodeCrypto.layer,
         Layer.succeed(InferenceRequests.InferenceRequestLog, {
           record: (record) => Queue.offer(records, record).pipe(Effect.asVoid),

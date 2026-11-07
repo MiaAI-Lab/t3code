@@ -121,6 +121,19 @@ export const InferenceDiscoveryResult = Schema.Struct({
 });
 export type InferenceDiscoveryResult = typeof InferenceDiscoveryResult.Type;
 
+/** Why T3's gateway stopped a reply: it repeated itself, only reasoned, or went quiet. */
+export const InferenceStopReason = Schema.Literals(["loop", "reasoning-limit", "idle"]);
+export type InferenceStopReason = typeof InferenceStopReason.Type;
+
+/** The latest reply T3's gateway stopped in a thread. */
+export const InferenceThreadStop = Schema.Struct({
+  serverId: InferenceServerId,
+  model: TrimmedNonEmptyString,
+  reason: InferenceStopReason,
+  at: IsoDateTime,
+});
+export type InferenceThreadStop = typeof InferenceThreadStop.Type;
+
 const Distribution = Schema.Struct({
   n: NonNegativeInt,
   p50: Schema.NullOr(Schema.Number),

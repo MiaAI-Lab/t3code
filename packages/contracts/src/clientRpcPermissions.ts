@@ -26,6 +26,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.serverDiscoverInferenceServers]: AuthSettingsWriteScope,
   [WS_METHODS.serverGetInferenceUsage]: AuthOrchestrationReadScope,
   [WS_METHODS.serverGetThreadInferenceRequest]: AuthOrchestrationReadScope,
+  [WS_METHODS.serverGetThreadInferenceStop]: AuthOrchestrationReadScope,
   [WS_METHODS.pullRequestsRunAction]: AuthSourceControlWriteScope,
   [WS_METHODS.pullRequestsUpdate]: AuthSourceControlWriteScope,
   [WS_METHODS.pullRequestsComment]: AuthSourceControlWriteScope,

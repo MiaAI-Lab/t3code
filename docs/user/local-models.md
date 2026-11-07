@@ -77,6 +77,11 @@ Code's gateway, which:
   queued after 10 minutes, or one arriving when 64 are already queued for that server, fails.
 - records each request's prompt, cached prompt and output tokens, queue wait, time to first token
   and decode speed, without the prompt or response text. Records are kept for 30 days.
+- stops a streaming reply that has run away, so it no longer holds the GPU: one that keeps
+  repeating the same text, one that has reasoned for about 128 KB without answering or calling a
+  tool, and one that sends nothing for 5 minutes before its first token or for 2 minutes after.
+  The thread then shows why, with **Continue** and **Choose model**. To turn this off for one
+  server, add `"watchdog": { "enabled": false }` to that server under `inferenceServers` in `settings.json`.
 
 Linked Pi instances also offer Pi a lean set of T3 tools by default; see
 [T3 Tools](./providers-pi.md#t3-tools). They also compact long threads from the server's prompt

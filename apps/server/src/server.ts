@@ -118,6 +118,7 @@ import * as InferenceGateway from "./inference/InferenceGateway.ts";
 import * as InferenceRouting from "./inference/InferenceRouting.ts";
 import * as InferenceGatewayAccess from "./inference/InferenceGatewayAccess.ts";
 import * as InferenceDiscovery from "./inference/InferenceDiscovery.ts";
+import * as InferenceStops from "./inference/InferenceStops.ts";
 import * as InferenceServerRegistry from "./inference/InferenceServerRegistry.ts";
 import * as InferenceRequests from "./persistence/InferenceRequests.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
@@ -691,6 +692,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       EnvironmentTheme.layer,
       UsageLimitSources.layer,
       InferenceRequests.layer,
+      InferenceStops.layer,
       InferenceGatewayAccess.layerRefreshLinkedInstances,
     ),
   ),

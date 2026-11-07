@@ -1,5 +1,6 @@
 import { VoiceInputSetup } from "./VoiceInputSetup";
 import { useInferenceOutageBannerItem } from "./useInferenceOutageBannerItem";
+import { useInferenceStopBannerItem } from "./useInferenceStopBannerItem";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
@@ -2474,48 +2475,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       getModelDisabledReason={getModelDisabledReason}
     />
   );
-  const inferenceOutageItem = useInferenceOutageBannerItem(
-    environmentId,
-    selectedProviderStatus,
-    selectedModel,
-    () => setIsComposerModelPickerOpen(true),
-  );
-  const baseBannerItems =
-    inferenceOutageItem === null ? props.bannerItems : [...props.bannerItems, inferenceOutageItem];
-  // An open question owns the space above the composer. Only a machine problem,
-  // which is why an answer could not go through, stays beside it.
-  const bannerItems: readonly ComposerBannerStackItem[] =
-    runtimeModeCeilingDenial === undefined || activePendingProgress
-      ? baseBannerItems
-      : [
-          ...baseBannerItems,
-          {
-            id: "managed-runtime-mode",
-            variant: "warning",
-            icon: <BuildingIcon />,
-            title: runtimeModeCeilingDenial,
-            ...(runtimeModeCeilingFallback === undefined
-              ? {}
-              : {
-                  actions: (
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      onClick={() => handleRuntimeModeChange(runtimeModeCeilingFallback)}
-                    >
-                      Switch to {runtimeModeConfig[runtimeModeCeilingFallback].label}
-                    </Button>
-                  ),
-                }),
-          },
-        ];
-  const shelfItems = hasBlockingComposerTopDrawer
-    ? bannerItems.filter(
-        (item) =>
-          item.group === "environment" && (item.variant === "error" || item.variant === "warning"),
-      )
-    : bannerItems;
-
   const insertComposerText = (
     text: string,
     position: "cursor" | "end",
@@ -2631,6 +2590,61 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     return inserted;
   };
   const insertComposerTextAtEndStable = useStableCallback(insertComposerTextAtEnd);
+
+  const inferenceOutageItem = useInferenceOutageBannerItem(
+    environmentId,
+    selectedProviderStatus,
+    selectedModel,
+    () => setIsComposerModelPickerOpen(true),
+  );
+  const inferenceStopItem = useInferenceStopBannerItem(
+    environmentId,
+    activeThread?.id,
+    activeThread?.latestRun,
+    () => {
+      insertComposerTextAtEndStable("Continue");
+      focusComposer();
+    },
+    () => setIsComposerModelPickerOpen(true),
+  );
+  const baseBannerItems = [
+    ...props.bannerItems,
+    ...(inferenceOutageItem === null ? [] : [inferenceOutageItem]),
+    ...(inferenceStopItem === null ? [] : [inferenceStopItem]),
+  ];
+  // An open question owns the space above the composer. Only a machine problem,
+  // which is why an answer could not go through, stays beside it.
+  const bannerItems: readonly ComposerBannerStackItem[] =
+    runtimeModeCeilingDenial === undefined || activePendingProgress
+      ? baseBannerItems
+      : [
+          ...baseBannerItems,
+          {
+            id: "managed-runtime-mode",
+            variant: "warning",
+            icon: <BuildingIcon />,
+            title: runtimeModeCeilingDenial,
+            ...(runtimeModeCeilingFallback === undefined
+              ? {}
+              : {
+                  actions: (
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => handleRuntimeModeChange(runtimeModeCeilingFallback)}
+                    >
+                      Switch to {runtimeModeConfig[runtimeModeCeilingFallback].label}
+                    </Button>
+                  ),
+                }),
+          },
+        ];
+  const shelfItems = hasBlockingComposerTopDrawer
+    ? bannerItems.filter(
+        (item) =>
+          item.group === "environment" && (item.variant === "error" || item.variant === "warning"),
+      )
+    : bannerItems;
 
   const addComposerFolders = (folders: File[]) => {
     const target = folderDropTarget({

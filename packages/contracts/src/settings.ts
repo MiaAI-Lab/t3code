@@ -922,6 +922,8 @@ export const InferenceServerConfig = Schema.Struct({
   maxConcurrency: Schema.optional(PositiveInt),
   /** Serves this server's requests while it is down or unreachable, if it serves the same model; never overflow. */
   fallbackServerId: Schema.optional(InferenceServerId),
+  /** T3's gateway stops a reply that loops, only thinks, or goes silent; on unless turned off. */
+  watchdog: Schema.optional(Schema.Struct({ enabled: Schema.optional(Schema.Boolean) })),
 });
 export type InferenceServerConfig = typeof InferenceServerConfig.Type;
 

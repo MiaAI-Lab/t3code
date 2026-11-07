@@ -4,6 +4,7 @@ import {
   InferenceServerId,
   InferenceServerSnapshot,
   InferenceThreadLastRequest,
+  InferenceThreadStop,
   InferenceUsageSummary,
   InferenceUsageWindow,
 } from "./inference.ts";
@@ -513,6 +514,7 @@ export const WS_METHODS = {
   serverDiscoverInferenceServers: "server.discoverInferenceServers",
   serverGetInferenceUsage: "server.getInferenceUsage",
   serverGetThreadInferenceRequest: "server.getThreadInferenceRequest",
+  serverGetThreadInferenceStop: "server.getThreadInferenceStop",
   serverUpdateProvider: "server.updateProvider",
   serverUpdateServer: "server.updateServer",
   serverUpdateServerWithProgress: "server.updateServerWithProgress",
@@ -661,6 +663,12 @@ const WsServerGetInferenceUsageRpc = Rpc.make(WS_METHODS.serverGetInferenceUsage
 const WsServerGetThreadInferenceRequestRpc = Rpc.make(WS_METHODS.serverGetThreadInferenceRequest, {
   payload: Schema.Struct({ threadId: ThreadId }),
   success: Schema.Struct({ last: Schema.NullOr(InferenceThreadLastRequest) }),
+  error: Schema.Union([EnvironmentAuthorizationError]),
+});
+
+const WsServerGetThreadInferenceStopRpc = Rpc.make(WS_METHODS.serverGetThreadInferenceStop, {
+  payload: Schema.Struct({ threadId: ThreadId }),
+  success: Schema.Struct({ stop: Schema.NullOr(InferenceThreadStop) }),
   error: Schema.Union([EnvironmentAuthorizationError]),
 });
 
@@ -2045,6 +2053,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerDiscoverInferenceServersRpc,
   WsServerGetInferenceUsageRpc,
   WsServerGetThreadInferenceRequestRpc,
+  WsServerGetThreadInferenceStopRpc,
   WsServerUpdateProviderRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,

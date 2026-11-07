@@ -94,6 +94,69 @@ function readAnthropicUsage(usage: unknown, tally: Tally) {
   if (completion !== undefined) tally.completion = completion;
 }
 
+/** Where a piece of generated text goes: the answer, the model's reasoning, or a tool call. */
+export type DeltaChannel = "answer" | "reasoning" | "tool";
+
+const asText = (value: unknown): string => (typeof value === "string" ? value : "");
+
+/** The generated text one streamed event adds, by channel. */
+function readDeltas(
+  api: InferenceApi,
+  event: unknown,
+): ReadonlyArray<readonly [DeltaChannel, string]> {
+  if (!isRecord(event)) return [];
+  switch (api) {
+    case "completions": {
+      const choices = Array.isArray(event.choices) ? event.choices : [];
+      return choices.map((choice) => ["answer", asText(field(choice, "text"))] as const);
+    }
+    case "chat-completions": {
+      const choices = Array.isArray(event.choices) ? event.choices : [];
+      return choices.flatMap((choice) => {
+        const delta = field(choice, "delta");
+        const calls = field(delta, "tool_calls");
+        return [
+          ["answer", asText(field(delta, "content"))] as const,
+          [
+            "reasoning",
+            asText(field(delta, "reasoning_content")) + asText(field(delta, "reasoning")),
+          ] as const,
+          ...(Array.isArray(calls)
+            ? calls.map(
+                (call) => ["tool", asText(field(call, "function", "arguments")) || " "] as const,
+              )
+            : []),
+        ];
+      });
+    }
+    case "responses": {
+      const type = typeof event.type === "string" ? event.type : "";
+      if (!type.endsWith(".delta")) return [];
+      const delta = asText(event.delta);
+      return [
+        [
+          type === "response.output_text.delta"
+            ? "answer"
+            : type.includes("reasoning")
+              ? "reasoning"
+              : "tool",
+          delta,
+        ] as const,
+      ];
+    }
+    case "messages": {
+      if (event.type !== "content_block_delta") return [];
+      const delta = field(event, "delta");
+      const kind = field(delta, "type");
+      return kind === "text_delta"
+        ? [["answer", asText(field(delta, "text"))] as const]
+        : kind === "thinking_delta"
+          ? [["reasoning", asText(field(delta, "thinking"))] as const]
+          : [["tool", asText(field(delta, "partial_json")) || " "] as const];
+    }
+  }
+}
+
 /** Reads one streamed event; returns true when it carries generated content. */
 function readEvent(api: InferenceApi, event: unknown, tally: Tally): boolean {
   if (!isRecord(event)) return false;
@@ -158,7 +221,12 @@ function readBody(api: InferenceApi, body: unknown, tally: Tally) {
  * Tees a response body into usage counts. Never throws: anything it cannot read reports as
  * unknown (null), and an oversized line or body is dropped rather than buffered.
  */
-export function makeUsageMeter(api: InferenceApi, streaming: boolean): UsageMeter {
+export function makeUsageMeter(
+  api: InferenceApi,
+  streaming: boolean,
+  /** Sees each piece of generated text as it streams, for the gateway's watchdog. */
+  onDelta?: (channel: DeltaChannel, text: string) => void,
+): UsageMeter {
   const decoder = new TextDecoder();
   const tally: Tally = {};
   let pending = "";
@@ -171,7 +239,13 @@ export function makeUsageMeter(api: InferenceApi, streaming: boolean): UsageMete
     const data = line.slice(5).trim();
     if (data === "[DONE]") tally.terminal = true;
     if (data === "" || data === "[DONE]") return false;
-    return readEvent(api, parseJson(data), tally);
+    const event = parseJson(data);
+    if (onDelta !== undefined) {
+      for (const [channel, piece] of readDeltas(api, event)) {
+        if (piece.length > 0) onDelta(channel, piece);
+      }
+    }
+    return readEvent(api, event, tally);
   };
 
   const push = (chunk: Uint8Array): boolean => {

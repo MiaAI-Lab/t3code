@@ -16,7 +16,10 @@ import { museClient } from "@t3tools/provider-muse/client";
 import { openCodeClient } from "@t3tools/provider-opencode/client";
 import { piClient } from "@t3tools/provider-pi/client";
 
+// Harnesses that can run local models come first.
 export const providerClients = makeProviderClientRegistry([
+  piClient,
+  openCodeClient,
   {
     driverKind: ProviderDriverKind.make("codex"),
     label: "Codex",
@@ -34,7 +37,6 @@ export const providerClients = makeProviderClientRegistry([
   cursorClient,
   grokClient,
   fxClient,
-  openCodeClient,
   {
     driverKind: ProviderDriverKind.make("antigravity"),
     label: "Antigravity",
@@ -44,7 +46,6 @@ export const providerClients = makeProviderClientRegistry([
   },
   kiroClient,
   museClient,
-  piClient,
   acpRegistryClient,
 ]);
 

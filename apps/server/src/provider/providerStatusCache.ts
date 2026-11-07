@@ -27,16 +27,20 @@ const mergeProviderModels = (
   ];
 };
 
+// Harnesses that can run local models lead; the user's local mark outranks driver order.
 const BUILT_IN_DRIVER_ORDER: ReadonlyArray<string> = [
+  "pi",
+  "opencode",
   "codex",
   "claudeAgent",
   "cursor",
   "grok",
-  "opencode",
   "antigravity",
   "fx",
   "kiro",
 ];
+
+const localRank = (provider: ServerProvider): number => (provider.inference === "local" ? 0 : 1);
 
 const driverRank = (driver: string): number => {
   const index = BUILT_IN_DRIVER_ORDER.indexOf(driver);
@@ -48,6 +52,7 @@ export const orderProviderSnapshots = (
 ): ReadonlyArray<ServerProvider> =>
   [...providers].toSorted(
     (left, right) =>
+      localRank(left) - localRank(right) ||
       driverRank(left.driver) - driverRank(right.driver) ||
       left.driver.localeCompare(right.driver) ||
       (left.displayName ?? "").localeCompare(right.displayName ?? "") ||

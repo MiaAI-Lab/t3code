@@ -21,6 +21,7 @@ import {
   deriveProviderInstanceEntries,
   NO_PROVIDER_MODEL_SELECTION,
   providerInstanceEntriesFor,
+  resolveProjectDefaultProviderModelSelection,
 } from "./providerInstances";
 import {
   defaultModelSelectionsAreMixed,
@@ -890,6 +891,41 @@ describe("resolveAppModelSelectionState with the opencode plan agent", () => {
     expect(resolveAppModelSelectionState(settings, [opencode])).toEqual(
       createModelSelection(instanceId, model, [{ id: "agent", value: "plan" }]),
     );
+  });
+});
+
+describe("local-first defaults", () => {
+  it("starts new threads and the composer on a ready local instance", () => {
+    const pi = ProviderDriverKind.make("pi");
+    const providers = [
+      provider({ instanceId: "codex", models: ["gpt-6-astra"] }),
+      provider({ provider: pi, instanceId: "pi", models: ["anthropic/claude"] }),
+      {
+        ...provider({ provider: pi, instanceId: "pi_local", models: ["tensorfold/glm"] }),
+        inference: "local" as const,
+      },
+    ];
+    const settings: UnifiedSettings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [ProviderInstanceId.make("pi")]: { driver: pi, enabled: true },
+        [ProviderInstanceId.make("pi_local")]: { driver: pi, enabled: true, inference: "local" },
+      },
+    };
+    const entries = providerInstanceEntriesFor(providers, settings, null);
+
+    expect(resolveProjectDefaultProviderModelSelection(providers, settings, null)).toEqual({
+      instanceId: "pi_local",
+      model: "tensorfold/glm",
+    });
+    expect(
+      resolveComposerProviderSelection({
+        entries,
+        candidateInstanceIds: [],
+        lockedProvider: null,
+        lockedInstanceId: undefined,
+      }).selectedProviderEntry?.instanceId,
+    ).toBe("pi_local");
   });
 });
 

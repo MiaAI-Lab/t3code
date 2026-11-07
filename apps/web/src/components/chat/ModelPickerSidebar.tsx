@@ -133,12 +133,16 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
             const isSelected = props.selectedInstanceId === entry.instanceId;
             const isHovered = hoveredInstanceId === entry.instanceId;
             const showInstanceBadge = shouldShowInstanceBadge(entry, props.instanceEntries);
+            const label =
+              entry.snapshot.inference === "local"
+                ? `${entry.displayName} · Local`
+                : entry.displayName;
 
             const tooltip = isUnavailable
               ? describeUnavailableInstance(entry)
               : isContextDisabled
-                ? (props.getDisabledInstanceTooltip?.(entry) ?? entry.displayName)
-                : entry.displayName;
+                ? (props.getDisabledInstanceTooltip?.(entry) ?? label)
+                : label;
 
             const button = (
               <Toolbar.Button
@@ -160,7 +164,7 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
                 focusableWhenDisabled={!isDisabled}
                 aria-pressed={isSelected}
                 type="button"
-                aria-label={isUnavailable || isContextDisabled ? tooltip : entry.displayName}
+                aria-label={isUnavailable || isContextDisabled ? tooltip : label}
               >
                 <ProviderInstanceIcon
                   driverKind={entry.driverKind}

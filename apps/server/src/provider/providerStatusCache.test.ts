@@ -8,7 +8,11 @@ import {
 import { createModelCapabilities } from "@t3tools/shared/model";
 import { assert, it } from "@effect/vitest";
 
-import { hydrateCachedProvider, isCachedProviderCorrelated } from "./providerStatusCache.ts";
+import {
+  hydrateCachedProvider,
+  isCachedProviderCorrelated,
+  orderProviderSnapshots,
+} from "./providerStatusCache.ts";
 
 const emptyCapabilities = createModelCapabilities({ optionDescriptors: [] });
 const CODEX_DRIVER = ProviderDriverKind.make("codex");
@@ -32,6 +36,24 @@ const makeProvider = (
 });
 
 it.layer(NodeServices.layer)("providerStatusCache", (it) => {
+  it("orders local instances first, then harnesses that can run local models", () => {
+    const local = makeProvider(ProviderDriverKind.make("claudeAgent"), {
+      instanceId: ProviderInstanceId.make("claude_local"),
+      inference: "local",
+    });
+    const ordered = orderProviderSnapshots([
+      makeProvider(CODEX_DRIVER),
+      makeProvider(ProviderDriverKind.make("opencode")),
+      local,
+      makeProvider(ProviderDriverKind.make("pi")),
+    ]);
+
+    assert.deepStrictEqual(
+      ordered.map((provider) => provider.instanceId),
+      ["claude_local", "pi", "opencode", "codex"],
+    );
+  });
+
   it("hydrates cached provider status while preserving current settings-derived models", () => {
     const cachedCodex = makeProvider(CODEX_DRIVER, {
       checkedAt: "2026-04-10T12:00:00.000Z",

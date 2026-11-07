@@ -13,6 +13,7 @@ import {
   ProviderDriverKind,
   type ProviderInstanceId,
   type SidebarProjectGroupingMode,
+  type TextGenerationFallback,
 } from "@t3tools/contracts";
 import {
   DEFAULT_UNIFIED_SETTINGS,
@@ -674,6 +675,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       confirmThreadUnpin: DEFAULT_UNIFIED_SETTINGS.confirmThreadUnpin,
       confirmQuit: DEFAULT_UNIFIED_SETTINGS.confirmQuit,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
+      textGenerationModelSelectionExplicit: false,
       threadTitleInstructions: DEFAULT_UNIFIED_SETTINGS.threadTitleInstructions,
       fontFamilySans: DEFAULT_UNIFIED_SETTINGS.fontFamilySans,
       fontFamilyComposer: DEFAULT_UNIFIED_SETTINGS.fontFamilyComposer,
@@ -1771,6 +1773,7 @@ export function ThreadsSettingsPanel() {
                   updateSettings({
                     textGenerationModelSelection:
                       DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
+                    textGenerationModelSelectionExplicit: false,
                   })
                 }
               />
@@ -1860,6 +1863,47 @@ export function ThreadsSettingsPanel() {
             )
           }
         />
+        <SettingsRow
+          serverScoped
+          settingKeys={["textGenerationFallback"]}
+          {...searchableSetting("text-generation-fallback")}
+          description="Where background writing goes when its model cannot run. Local only applies once an instance is marked as running local models."
+          resetAction={
+            settings.textGenerationFallback !== DEFAULT_UNIFIED_SETTINGS.textGenerationFallback ? (
+              <SettingResetButton
+                label="text generation fallback"
+                onClick={() =>
+                  updateSettings({
+                    textGenerationFallback: DEFAULT_UNIFIED_SETTINGS.textGenerationFallback,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.textGenerationFallback}
+              onValueChange={(value) => {
+                if (value === "local" || value === "any" || value === "none") {
+                  updateSettings({ textGenerationFallback: value });
+                }
+              }}
+            >
+              <SelectTrigger size="sm" className="w-full sm:w-56" aria-label="Fallback">
+                <SelectValue>
+                  {(value: TextGenerationFallback) => TEXT_GENERATION_FALLBACK_LABELS[value]}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {TEXT_GENERATION_FALLBACKS.map((value) => (
+                  <SelectItem key={value} hideIndicator value={value}>
+                    {TEXT_GENERATION_FALLBACK_LABELS[value]}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
         <AdvancedSettings
           targetIds={[
             searchableSetting("thread-title-instructions").id,
@@ -1920,6 +1964,13 @@ export function ThreadsSettingsPanel() {
     </SettingsPageContainer>
   );
 }
+
+const TEXT_GENERATION_FALLBACKS = ["local", "any", "none"] as const;
+const TEXT_GENERATION_FALLBACK_LABELS: Record<TextGenerationFallback, string> = {
+  local: "Local models only",
+  any: "Any provider",
+  none: "Don't fall back",
+};
 
 export function MaintenanceSettingsPanel() {
   const settings = useScopedSettings();

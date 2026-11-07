@@ -802,6 +802,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["generated thread titles source control content default provider"],
   },
   {
+    id: "text-generation-fallback",
+    title: "Text generation fallback",
+    to: "/settings/threads",
+    scope: "environment",
+    searchTerms: ["local models only cloud privacy background writing titles commit messages"],
+  },
+  {
     id: "thread-title-instructions",
     title: "Thread title instructions",
     to: "/settings/threads",

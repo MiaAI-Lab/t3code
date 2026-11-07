@@ -975,6 +975,10 @@ const SourceControlWritingStyleSetting = Schema.Union([
   LegacySourceControlWritingStyle,
 ]);
 
+/** Where background writing may go when its model cannot run: local-marked instances, anything, or nowhere. */
+export const TextGenerationFallback = Schema.Literals(["local", "any", "none"]);
+export type TextGenerationFallback = typeof TextGenerationFallback.Type;
+
 export const BranchNamingMode = Schema.Literals(["static", "semantic", "custom"]);
 export type BranchNamingMode = typeof BranchNamingMode.Type;
 
@@ -1385,6 +1389,13 @@ export const ServerSettings = Schema.Struct({
       }),
     ),
   ),
+  /** Set when a client picks a text generation model; until then a ready local instance is preferred. */
+  textGenerationModelSelectionExplicit: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  textGenerationFallback: TextGenerationFallback.pipe(
+    Schema.withDecodingDefault(Effect.succeed("local" as const)),
+  ),
   threadTitleInstructions: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   branchNamingMode: BranchNamingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("static" as const)),
@@ -1738,6 +1749,9 @@ export const ServerSettingsPatch = Schema.Struct({
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   ghqCloneLayout: Schema.optionalKey(Schema.Boolean),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
+  textGenerationFallback: Schema.optionalKey(TextGenerationFallback),
+  /** Omitted with a selection means the user picked it; resets send false to restore automatic. */
+  textGenerationModelSelectionExplicit: Schema.optionalKey(Schema.Boolean),
   threadTitleInstructions: Schema.optionalKey(TrimmedString),
   branchNamingMode: Schema.optionalKey(BranchNamingMode),
   branchNamePrefix: Schema.optionalKey(TrimmedString),

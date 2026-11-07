@@ -61,6 +61,12 @@ saved totals first, then updates them when Cursor's API responds.
 If recent work is missing or a new model shows no cost, refresh to rescan session history and
 update model pricing.
 
+## Local compute
+
+Below Cost and Tokens, **Local compute** shows the requests T3 Code's gateway sent to your
+registered inference servers in the past 24 hours or 7 days. See
+[Local models](./local-models.md#see-what-your-hardware-did).
+
 ## Set custom model prices
 
 On web or desktop, open the environment dropdown on **Usage**, then choose **Model prices** to add,

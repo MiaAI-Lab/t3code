@@ -9,6 +9,46 @@ The inference server must be reachable from the environment's machine. `localhos
 means the machine running the T3 Code server, even when you are connected from a
 phone or another computer.
 
+## Register your inference servers
+
+Open **Settings → Inference** and add each model server with **Add server**: its **Base URL**
+(such as `http://localhost:11434/v1`), an optional name and API key, and optionally **Max
+concurrent requests**. T3 Code checks each server and shows whether it is ready, the models it
+serves with their context windows, and its current load when the server reports one. **Refresh**
+checks again.
+
+Then link a provider instance to a server with the **Inference server** setting on its card in
+**Settings → Providers**. A linked instance counts as local while its server is enabled, and the
+model picker shows the server's name and readiness next to the provider, such as `Pi · rtx ·
+Ready`. T3 Code also caps the context window it assumes for the instance at what the server
+actually serves.
+
+### Pi on a registered server
+
+A Pi instance linked to a server needs no `models.json` entry. T3 Code registers the server in Pi
+as `t3-<server>` with every model the server reports, sized from what the server advertises, so
+pick a model such as `t3-rtx/your-model-id` in the model picker. These requests go through T3
+Code's gateway, which:
+
+- sends at most **Max concurrent requests** to the server at once and queues the rest, so
+  parallel threads take turns instead of overloading the GPU. Chat requests go ahead of
+  background writing, and a background request that has waited 30 seconds is treated as chat so
+  none waits forever. A waiting thread shows `Waiting for <server> · 2 ahead`. A request still
+  queued after 10 minutes, or one arriving when 64 are already queued for that server, fails.
+- records each request's prompt, cached prompt and output tokens, queue wait, time to first token
+  and decode speed, without the prompt or response text. Records are kept for 30 days.
+
+Linked Pi instances also offer Pi a lean set of T3 tools by default; see
+[T3 Tools](./providers-pi.md#t3-tools).
+
+### See what your hardware did
+
+The **Local compute** section of **Usage → Cost** and **Usage → Tokens** totals those records by server, model and purpose (chat or background
+writing) for the last day or week: requests, failures, tokens, the share of the prompt served
+from cache, and median and 95th percentile queue wait, time to first token and decode speed. In
+a thread, the details panel's **Last request** row shows the most recent request's prompt size
+and time to first token.
+
 ## Choose a provider
 
 | Provider | Configure the endpoint in                                                           | Needs                               |
@@ -42,8 +82,9 @@ Add your server as a provider in `~/.pi/agent/models.json`:
 
 Set it as Pi's default with `defaultProvider` and `defaultModel` in
 `~/.pi/agent/settings.json`, enable Pi in **Settings → Providers**, and refresh
-it. See [Pi](./providers-pi.md). A Pi instance linked to an inference server offers Pi a lean set
-of T3 tools by default; see [T3 Tools](./providers-pi.md#t3-tools).
+it. See [Pi](./providers-pi.md). To skip this file, register the server in **Settings →
+Inference** and link the Pi instance to it instead; see
+[Pi on a registered server](#pi-on-a-registered-server).
 
 ### OpenCode
 
@@ -103,7 +144,8 @@ Codex's built-in Ollama or `lmstudio` providers. Use `-c` overrides rather than
 
 ## Mark the instance as local
 
-In **Settings → Providers**, turn on **Runs local models** for each instance whose
+An instance linked to an enabled inference server already counts as local. For any other
+instance, in **Settings → Providers**, turn on **Runs local models** for each instance whose
 models all run on hardware you control. Leave it off for an instance that mixes
 local and cloud models, and split those into separate instances instead.
 

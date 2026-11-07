@@ -1,5 +1,7 @@
 import {
   defaultInstanceIdForDriver,
+  type InferenceServerSnapshot,
+  type InferenceServerStatus,
   PROVIDER_DISPLAY_NAMES,
   type ProviderDriverKind,
   type ServerProvider,
@@ -89,4 +91,31 @@ export function shouldShowInstanceBadge(
     if (++sharedProviderCount > 1) return true;
   }
   return false;
+}
+
+export const INFERENCE_SERVER_STATUS_LABELS: Readonly<Record<InferenceServerStatus, string>> = {
+  checking: "Checking",
+  ready: "Ready",
+  unreachable: "Unreachable",
+  error: "Error",
+};
+
+/**
+ * Where an instance's models run: "Pi · rtx · Ready" for one linked to a known inference server,
+ * "Pi · Local" for one marked local by hand.
+ */
+export function providerInstanceInferenceLabel(
+  displayName: string,
+  snapshot: Pick<ServerProvider, "inference" | "inferenceServerId">,
+  inferenceServers: ReadonlyArray<InferenceServerSnapshot> | null | undefined,
+): string {
+  const server =
+    snapshot.inferenceServerId === undefined
+      ? undefined
+      : inferenceServers?.find((candidate) => candidate.id === snapshot.inferenceServerId);
+  if (server) {
+    const status = server.enabled ? INFERENCE_SERVER_STATUS_LABELS[server.status] : "Disabled";
+    return `${displayName} · ${server.displayName} · ${status}`;
+  }
+  return snapshot.inference === "local" ? `${displayName} · Local` : displayName;
 }

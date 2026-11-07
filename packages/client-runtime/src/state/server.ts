@@ -1148,6 +1148,11 @@ export function createServerEnvironmentAtoms<R, E>(
       Atom.withLabel(`environment-data:server:providers:${environmentId}`),
     ),
   );
+  const inferenceServersValueAtom = Atom.family((environmentId: EnvironmentId) =>
+    Atom.make((get) => get(configValueAtom(environmentId))?.inferenceServers ?? null).pipe(
+      Atom.withLabel(`environment-data:server:inference-servers:${environmentId}`),
+    ),
+  );
   const welcomeStateFamily = Atom.family((environmentId: EnvironmentId) =>
     runtime
       .atom(serverWelcomeStateChanges(environmentId), { initialValue: null })
@@ -1228,6 +1233,7 @@ export function createServerEnvironmentAtoms<R, E>(
     hiddenThreadTagsAtom,
     usageModelFilterAtom,
     providersValueAtom,
+    inferenceServersValueAtom,
     providerAuthState: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:provider:auth-state",
       tag: WS_METHODS.providerAuthSubscribe,
@@ -1434,6 +1440,14 @@ export function createServerEnvironmentAtoms<R, E>(
             input.fresh ?? false,
             input.refreshModels ?? false,
           ]),
+      },
+    }),
+    refreshInferenceServers: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:refresh-inference-servers",
+      tag: WS_METHODS.serverRefreshInferenceServers,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.id ?? null]),
       },
     }),
     updateProvider: createEnvironmentRpcCommand(runtime, {

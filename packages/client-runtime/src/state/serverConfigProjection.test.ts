@@ -79,3 +79,52 @@ describe("applyServerConfigProjection settingsUpdated", () => {
     expect(Option.getOrThrow(next).config).toBe(Option.getOrThrow(current).config);
   });
 });
+
+describe("applyServerConfigProjection providerStatuses", () => {
+  const server = (status: string, running: number) => ({
+    id: "rtx",
+    displayName: "rtx",
+    baseUrl: "http://localhost:8888/v1",
+    enabled: true,
+    status,
+    checkedAt: null,
+    models: [{ id: "glm", servedContextWindow: 131072 }],
+    load: { running, waiting: 0 },
+  });
+  const projectionWith = (inferenceServers: unknown) =>
+    Option.some({
+      config: { providers: [], inferenceServers } as unknown as ServerConfig,
+      latestEvent: {} as ServerConfigStreamEvent,
+      source: "live" as const,
+    });
+  const statuses = (payload: object) =>
+    ({
+      type: "providerStatuses",
+      payload: { providers: [], ...payload },
+    }) as unknown as ServerConfigStreamEvent;
+
+  it("folds inference servers, reusing unchanged models, and keeps them when omitted", () => {
+    const current = projectionWith([server("checking", 0)]);
+    const next = Option.getOrThrow(
+      applyServerConfigProjection(current, statuses({ inferenceServers: [server("ready", 2)] })),
+    ).config;
+    expect(next.inferenceServers?.[0]?.status).toBe("ready");
+    expect(next.inferenceServers?.[0]?.load?.running).toBe(2);
+    expect(next.inferenceServers?.[0]?.models).toBe(
+      Option.getOrThrow(current).config.inferenceServers?.[0]?.models,
+    );
+
+    const omitted = Option.getOrThrow(
+      applyServerConfigProjection(
+        Option.some({ ...Option.getOrThrow(current), config: next }),
+        statuses({}),
+      ),
+    ).config;
+    expect(omitted.inferenceServers).toBe(next.inferenceServers);
+
+    const cleared = Option.getOrThrow(
+      applyServerConfigProjection(current, statuses({ inferenceServers: [] })),
+    ).config;
+    expect(cleared.inferenceServers).toEqual([]);
+  });
+});

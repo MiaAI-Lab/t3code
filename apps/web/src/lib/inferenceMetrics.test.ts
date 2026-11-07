@@ -4,9 +4,24 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   cachedPromptShare,
   formatLastInferenceRequest,
+  formatLastRequestCached,
+  formatLastRequestServer,
   formatMeasuredSeconds,
   formatTokensPerSecond,
+  lastRequestObservations,
 } from "./inferenceMetrics";
+
+const measured = {
+  serverId: InferenceServerId.make("spark1"),
+  model: "glm",
+  completedAt: "2026-11-07T00:00:00.000Z",
+  promptTokens: 1_000,
+  cachedPromptTokens: 250,
+  completionTokens: 10,
+  queueWaitMs: null,
+  ttftMs: null,
+  decodeTokensPerSecond: null,
+};
 
 describe("inference metrics", () => {
   it("shows a dash for anything the gateway did not measure", () => {
@@ -48,5 +63,19 @@ describe("inference metrics", () => {
     expect(cachedPromptShare(0, 0)).toBeNull();
     expect(cachedPromptShare(100, null)).toBeNull();
     expect(cachedPromptShare(100, 120)).toBe(1);
+  });
+
+  it("names the fallback and lists only observed changes", () => {
+    const name = (id: string) => (id === "rtx" ? "RTX box" : id);
+    expect(formatLastRequestServer(measured, name)).toBe("Served by spark1");
+    expect(
+      formatLastRequestServer({ ...measured, fallbackFrom: InferenceServerId.make("rtx") }, name),
+    ).toBe("Served by spark1 (fallback from RTX box)");
+    expect(lastRequestObservations(measured)).toEqual([]);
+    expect(
+      lastRequestObservations({ ...measured, staticPrefixChanged: true, serverChanged: false }),
+    ).toEqual(["Tool prefix changed since the previous request"]);
+    expect(formatLastRequestCached(measured)).toBe("cached 25%");
+    expect(formatLastRequestCached({ ...measured, cachedPromptTokens: null })).toBeNull();
   });
 });

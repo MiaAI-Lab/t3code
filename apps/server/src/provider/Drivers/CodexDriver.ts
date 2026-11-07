@@ -29,6 +29,7 @@ import {
   withCodexAppServerClient,
 } from "../CodexProvider.ts";
 import { resolveCodexLaunchArgs } from "../codexLaunchArgs.ts";
+import { makeCodexGatewaySource, withCodexGatewayStatus } from "../codexGateway.ts";
 import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
 import * as ModelCatalog from "@t3tools/provider-core/server/ModelCatalog";
 import { applyCodexModelCatalog } from "../codexModelCatalog.ts";
@@ -230,14 +231,20 @@ export const CodexDriver: ProviderDriver<
 
     // Kick the TTL-gated manifest refresh in the background and classify with the in-memory
     // manifest, so a slow or hung fetch never delays the provider check.
+    const gateway = yield* makeCodexGatewaySource(instanceId);
     const checkProvider = modelCatalog.refreshInBackground.pipe(
       Effect.andThen(
-        Effect.zipWith(
-          checkCodexProviderStatus(effectiveConfig, undefined, processEnv),
-          currentCatalog,
-          (draft, catalog) => stampIdentity(applyCodexModelCatalog(draft, catalog)),
-          { concurrent: true },
+        Effect.all(
+          [
+            checkCodexProviderStatus(effectiveConfig, undefined, processEnv),
+            currentCatalog,
+            gateway.resolution,
+          ],
+          { concurrency: "unbounded" },
         ),
+      ),
+      Effect.map(([draft, catalog, resolution]) =>
+        stampIdentity(withCodexGatewayStatus(applyCodexModelCatalog(draft, catalog), resolution)),
       ),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       Effect.provideService(FileSystem.FileSystem, fileSystem),
@@ -282,6 +289,8 @@ export const CodexDriver: ProviderDriver<
       effectiveConfig,
       processEnv,
       snapshot.getSnapshot.pipe(Effect.map((value) => value.models)),
+      undefined,
+      gateway.forBackground,
     );
     const snapshotForCwd = (cwd: string) =>
       !effectiveConfig.enabled

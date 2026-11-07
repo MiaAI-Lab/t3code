@@ -1,3 +1,4 @@
+import type { CodexGatewaySource } from "../provider/codexGateway.ts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -65,6 +66,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     import("@t3tools/contracts").ProviderSetupError,
     Scope.Scope
   >,
+  gateway?: CodexGatewaySource["forBackground"],
 ) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -280,8 +282,10 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       const serviceTier =
         resolved || fellBack ? undefined : getCodexServiceTierOptionValue(modelSelection);
       const binary = effectiveConfig.binaryPath || "codex";
+      const managed = gateway === undefined ? undefined : yield* gateway;
       const env = {
         ...effectiveEnvironment,
+        ...managed?.environment,
         ...(effectiveConfig.homePath
           ? {
               CODEX_HOME: expandHomePath(
@@ -302,6 +306,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
         [
           "exec",
           ...codexExecLaunchArgs(launchArgs),
+          ...(managed?.args ?? []),
           // A user's MCP server could act on the text-generation prompt.
           ...CODEX_NO_PLUGIN_ARGS,
           ...(mcpServersOff ? ["--config", mcpServersOff] : []),

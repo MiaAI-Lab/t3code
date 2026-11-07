@@ -15,6 +15,7 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import {
   draftFromInferenceServer,
   EMPTY_INFERENCE_SERVER_DRAFT,
@@ -44,12 +45,18 @@ export function InferenceServerDialog({
   environmentId,
   environmentLabel,
   existingIds,
+  fallbackOptions,
   existing,
 }: {
   readonly onClose: () => void;
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
   readonly existingIds: ReadonlySet<string>;
+  /** Every other registered server this one can fall back to. */
+  readonly fallbackOptions: ReadonlyArray<{
+    readonly id: InferenceServerId;
+    readonly name: string;
+  }>;
   readonly existing?: { readonly id: InferenceServerId; readonly config: InferenceServerConfig };
 }) {
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
@@ -167,6 +174,44 @@ export function InferenceServerDialog({
               />
               <FieldError id="inference-server-concurrency-error" message={shown.maxConcurrency} />
             </div>
+            {fallbackOptions.length > 0 || draft.fallbackServerId !== "" ? (
+              <div className="grid gap-1.5">
+                <Label id="inference-server-fallback-label">Fallback server (optional)</Label>
+                <Select
+                  value={draft.fallbackServerId}
+                  onValueChange={(value) => update({ fallbackServerId: value ?? "" })}
+                >
+                  <SelectTrigger
+                    aria-labelledby="inference-server-fallback-label"
+                    aria-invalid={shown.fallbackServerId !== undefined}
+                    aria-describedby={
+                      shown.fallbackServerId !== undefined
+                        ? "inference-server-fallback-error"
+                        : "inference-server-fallback-hint"
+                    }
+                  >
+                    <SelectValue>
+                      {draft.fallbackServerId === ""
+                        ? "None"
+                        : (fallbackOptions.find((option) => option.id === draft.fallbackServerId)
+                            ?.name ?? draft.fallbackServerId)}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup>
+                    <SelectItem value="">None</SelectItem>
+                    {fallbackOptions.map((option) => (
+                      <SelectItem key={option.id} value={option.id}>
+                        {option.name}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+                <p id="inference-server-fallback-hint" className="text-xs text-muted-foreground">
+                  Takes requests this server cannot accept, when it serves the same model.
+                </p>
+                <FieldError id="inference-server-fallback-error" message={shown.fallbackServerId} />
+              </div>
+            ) : null}
           </form>
         </DialogPanel>
         <DialogFooter variant="bare">

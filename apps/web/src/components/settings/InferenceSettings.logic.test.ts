@@ -4,9 +4,11 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   describeInferenceModelContext,
+  describeInferenceServerFallback,
   EMPTY_INFERENCE_SERVER_DRAFT,
   inferenceServerFromDraft,
   inferenceServerIdFromName,
+  inferenceServerRemovalPatch,
   normalizeInferenceServerBaseUrl,
   presentInferenceServers,
   resolveInferenceServerLink,
@@ -94,6 +96,23 @@ describe("inferenceServerFromDraft", () => {
       );
     }
   });
+
+  it("keeps a fallback only when it names another registered server", () => {
+    const target = { mode: "edit", id: InferenceServerId.make("rtx"), enabled: true } as const;
+    const withFallback = inferenceServerFromDraft(
+      { ...draft, fallbackServerId: "spark1" },
+      new Set(["rtx", "spark1"]),
+      target,
+    );
+    expect(Result.isSuccess(withFallback) && withFallback.success.config.fallbackServerId).toBe(
+      "spark1",
+    );
+    for (const fallbackServerId of ["rtx", "gone"]) {
+      expect(
+        inferenceServerFromDraft({ ...draft, fallbackServerId }, new Set(["rtx"]), target),
+      ).toEqual(Result.fail({ fallbackServerId: "Choose another registered server, or none." }));
+    }
+  });
 });
 
 describe("describeInferenceModelContext", () => {
@@ -135,6 +154,30 @@ describe("resolveInferenceServerLink", () => {
     expect(resolveInferenceServerLink("rtx", servers)).toEqual({ kind: "enabled", name: "RTX" });
     expect(resolveInferenceServerLink("old", servers)).toEqual({ kind: "disabled", name: "old" });
     expect(resolveInferenceServerLink("gone", servers)).toEqual({ kind: "missing", id: "gone" });
+  });
+
+  it("removes a server and clears it as others' fallback in one patch", () => {
+    const withFallbacks = {
+      ...servers,
+      [InferenceServerId.make("old")]: { ...servers.old, fallbackServerId: "rtx" },
+      [InferenceServerId.make("spark1")]: {
+        baseUrl: "http://spark1/v1",
+        apiKey: "",
+        enabled: true,
+        fallbackServerId: "old",
+      },
+    } as unknown as typeof servers;
+    expect(inferenceServerRemovalPatch(withFallbacks, InferenceServerId.make("rtx"))).toEqual({
+      rtx: null,
+      old: { baseUrl: "http://old/v1", apiKey: "", enabled: false },
+    });
+    expect(describeInferenceServerFallback({ fallbackServerId: undefined }, servers)).toBeNull();
+    expect(
+      describeInferenceServerFallback(
+        { fallbackServerId: InferenceServerId.make("gone") },
+        servers,
+      ),
+    ).toBe("falls back to gone (not registered)");
   });
 
   it("treats a removal the server has not confirmed as gone", () => {

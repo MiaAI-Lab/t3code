@@ -30,8 +30,10 @@ import { Switch } from "../ui/switch";
 import { InferenceServerDialog } from "./InferenceServerDialog";
 import {
   describeInferenceModelContext,
+  describeInferenceServerFallback,
   describeInferenceServerLoad,
   inferenceServerDisplayName,
+  inferenceServerRemovalPatch,
   presentInferenceServers,
 } from "./InferenceSettings.logic";
 import {
@@ -163,13 +165,16 @@ function EnvironmentInferenceServers({
               key={id}
               id={id}
               config={config}
+              fallback={describeInferenceServerFallback(config, servers)}
               snapshot={snapshots.find((candidate) => candidate.id === id)}
               readOnly={readOnly}
               onEdit={() => setDialog({ mode: "edit", id })}
               onEnabledChange={(enabled) =>
                 updateSettings({ inferenceServers: { [id]: { ...config, enabled } } })
               }
-              onRemove={() => updateSettings({ inferenceServers: { [id]: null } })}
+              onRemove={() =>
+                updateSettings({ inferenceServers: inferenceServerRemovalPatch(servers, id) })
+              }
             />
           ))
         )}
@@ -180,6 +185,9 @@ function EnvironmentInferenceServers({
           environmentId={environmentId}
           environmentLabel={environment.label}
           existingIds={new Set(Object.keys(servers))}
+          fallbackOptions={entries
+            .filter(([id]) => dialog.mode === "add" || id !== dialog.id)
+            .map(([id, config]) => ({ id, name: inferenceServerDisplayName(id, config) }))}
           {...(editing === undefined ? {} : { existing: editing })}
         />
       ) : null}
@@ -190,6 +198,7 @@ function EnvironmentInferenceServers({
 function InferenceServerRow({
   id,
   config,
+  fallback,
   snapshot,
   readOnly,
   onEdit,
@@ -198,6 +207,7 @@ function InferenceServerRow({
 }: {
   readonly id: InferenceServerId;
   readonly config: InferenceServerConfig;
+  readonly fallback: string | null;
   readonly snapshot: InferenceServerSnapshot | undefined;
   readonly readOnly: boolean;
   readonly onEdit: () => void;
@@ -211,6 +221,7 @@ function InferenceServerRow({
     config.baseUrl,
     current?.engine,
     config.maxConcurrency === undefined ? undefined : `T3 sends up to ${config.maxConcurrency}`,
+    fallback ?? undefined,
   ].filter((part): part is string => part !== undefined);
   return (
     <SettingsRow
@@ -294,7 +305,8 @@ function RemoveInferenceServerButton({
             <AlertDialogTitle>Remove {label}?</AlertDialogTitle>
             <AlertDialogDescription>
               Its API key is deleted from this environment. Provider instances linked to it show a
-              warning until you link them elsewhere. The server itself is untouched.
+              warning until you link them elsewhere, and servers that fall back to it stop doing so.
+              The server itself is untouched.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

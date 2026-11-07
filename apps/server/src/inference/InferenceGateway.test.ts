@@ -102,7 +102,12 @@ const makeHarness = Effect.fnUntraced(function* (threads: Layer.Layer<never> = L
         capture,
         HttpServerResponse.stream(
           Stream.concat(
-            Stream.make(encoder.encode(sse([{ choices: [{ delta: { content: "a" } }] }]))),
+            // Content but no terminal event: the response is still mid-stream.
+            Stream.make(
+              encoder.encode(
+                `data: ${JSON.stringify({ choices: [{ delta: { content: "a" } }] })}\n\n`,
+              ),
+            ),
             Stream.fromEffect(Deferred.succeed(hangStarted, undefined)).pipe(
               Stream.flatMap(() => Stream.never),
             ),

@@ -11,6 +11,8 @@ export interface InferenceUsage {
 export interface UsageMeter {
   /** Returns true when this chunk carried the response's first generated content. */
   readonly push: (chunk: Uint8Array) => boolean;
+  /** Whether a stream reached its protocol's terminal event; clients may disconnect right after it. */
+  readonly finished: () => boolean;
   readonly finish: () => InferenceUsage;
 }
 
@@ -48,6 +50,7 @@ interface Tally {
   prompt?: number;
   cached?: number;
   completion?: number;
+  terminal?: boolean;
 }
 
 /** OpenAI chat and legacy completions. */
@@ -91,6 +94,9 @@ function readEvent(api: InferenceApi, event: unknown, tally: Tally): boolean {
     case "completions": {
       if (event.usage !== undefined && event.usage !== null) readOpenAiUsage(event.usage, tally);
       const choices = Array.isArray(event.choices) ? event.choices : [];
+      if (choices.some((choice) => typeof field(choice, "finish_reason") === "string")) {
+        tally.terminal = true;
+      }
       return choices.some((choice) => {
         if (api === "completions") return nonEmpty(field(choice, "text"));
         const delta = field(choice, "delta");
@@ -110,6 +116,7 @@ function readEvent(api: InferenceApi, event: unknown, tally: Tally): boolean {
         type === "response.failed"
       ) {
         readResponsesUsage(field(event, "response", "usage"), tally);
+        tally.terminal = true;
       }
       return type.endsWith(".delta") && nonEmpty(event.delta);
     }
@@ -121,6 +128,7 @@ function readEvent(api: InferenceApi, event: unknown, tally: Tally): boolean {
         const completion = count(field(event, "usage", "output_tokens"));
         if (completion !== undefined) tally.completion = completion;
       }
+      if (event.type === "message_stop") tally.terminal = true;
       return event.type === "content_block_delta";
     }
   }
@@ -148,6 +156,7 @@ export function makeUsageMeter(api: InferenceApi, streaming: boolean): UsageMete
   const readLine = (line: string): boolean => {
     if (!line.startsWith("data:")) return false;
     const data = line.slice(5).trim();
+    if (data === "[DONE]") tally.terminal = true;
     if (data === "" || data === "[DONE]") return false;
     return readEvent(api, parseJson(data), tally);
   };
@@ -207,5 +216,5 @@ export function makeUsageMeter(api: InferenceApi, streaming: boolean): UsageMete
     };
   };
 
-  return { push, finish };
+  return { push, finished: () => tally.terminal === true, finish };
 }

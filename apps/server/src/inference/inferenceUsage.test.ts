@@ -18,7 +18,13 @@ function meter(api: InferenceApi, streaming: boolean, text: string, size = 7) {
       firstContentAt = index;
     }
   }
-  return { usage: usage.finish(), firstContentAt, chunks: Math.ceil(bytes.length / size) };
+  const finished = usage.finished();
+  return {
+    usage: usage.finish(),
+    firstContentAt,
+    finished,
+    chunks: Math.ceil(bytes.length / size),
+  };
 }
 
 describe("makeUsageMeter", () => {
@@ -109,6 +115,35 @@ describe("makeUsageMeter", () => {
     const result = meter(api, false, JSON.stringify(body));
     expect(result.usage).toEqual(expected);
     expect(result.firstContentAt).toBeUndefined();
+  });
+
+  // Clients close the connection once they read the terminal event, before upstream ends.
+  it.each([
+    ["chat-completions", sse([{ choices: [{ delta: { content: "Hi" } }] }, "[DONE]"])],
+    ["chat-completions", sse([{ choices: [{ delta: { content: "Hi" }, finish_reason: "stop" }] }])],
+    [
+      "responses",
+      sse([
+        { type: "response.output_text.delta", delta: "Hi" },
+        { type: "response.completed", response: {} },
+      ]),
+    ],
+    [
+      "messages",
+      sse([{ type: "content_block_delta", delta: { text: "Hi" } }, { type: "message_stop" }]),
+    ],
+  ] as const)("knows a %s stream reached its terminal event", (api, text) => {
+    expect(meter(api, true, text).finished).toBe(true);
+  });
+
+  it("does not treat a stream cut before its terminal event as finished", () => {
+    expect(
+      meter("chat-completions", true, sse([{ choices: [{ delta: { content: "Hi" } }] }])).finished,
+    ).toBe(false);
+    expect(
+      meter("messages", true, sse([{ type: "content_block_delta", delta: { text: "Hi" } }]))
+        .finished,
+    ).toBe(false);
   });
 
   it("reports unknown usage instead of failing on missing or malformed data", () => {

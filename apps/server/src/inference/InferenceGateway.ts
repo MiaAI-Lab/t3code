@@ -358,7 +358,9 @@ const make = Effect.gen(function* () {
               ? "completed"
               : "failed"
             : Exit.hasInterrupts(exit)
-              ? "cancelled"
+              ? meter.finished() && succeeded
+                ? "completed"
+                : "cancelled"
               : "failed",
         ),
       ),

@@ -5,6 +5,7 @@ import {
   type InferenceServerLoad,
   type InferenceServerModel,
   type InferenceServerSnapshot,
+  type ProviderInstanceConfig,
   type ServerSettings,
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
@@ -152,6 +153,27 @@ function readMetrics(text: string): { engine: string; load: InferenceServerLoad 
     };
   }
   return undefined;
+}
+
+/**
+ * The served window of a linked instance's model, matched by exact id or a harness slug ending in
+ * `/<id>`. `unmatched` names a ready server that does not list the model.
+ */
+export function servedContextWindowForModel(input: {
+  readonly instance: Pick<ProviderInstanceConfig, "inferenceServerId"> | undefined;
+  readonly inferenceServers: ServerSettings["inferenceServers"];
+  readonly snapshots: ReadonlyArray<InferenceServerSnapshot>;
+  readonly model: string;
+}): { readonly window?: number; readonly unmatched?: InferenceServerId } {
+  const serverId = input.instance?.inferenceServerId;
+  if (serverId === undefined || input.inferenceServers[serverId]?.enabled !== true) return {};
+  const snapshot = input.snapshots.find((candidate) => candidate.id === serverId);
+  if (snapshot?.status !== "ready") return {};
+  const model = snapshot.models.find(
+    (candidate) => input.model === candidate.id || input.model.endsWith(`/${candidate.id}`),
+  );
+  if (model === undefined) return { unmatched: serverId };
+  return model.servedContextWindow === undefined ? {} : { window: model.servedContextWindow };
 }
 
 type Fetched =

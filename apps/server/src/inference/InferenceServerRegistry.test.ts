@@ -429,3 +429,42 @@ describe("InferenceServerRegistry lifecycle", () => {
     }),
   );
 });
+
+describe("servedContextWindowForModel", () => {
+  const snapshot: InferenceServerSnapshot = {
+    id: rtx,
+    displayName: "rtx",
+    baseUrl: `${HOST}/v1`,
+    enabled: true,
+    status: "ready",
+    checkedAt: "2026-11-07T00:00:00.000Z",
+    models: [
+      { id: "GLM-5.3-Flash", servedContextWindow: 813056 },
+      { id: "gemma.gguf", trainedContextWindow: 131072 },
+    ],
+  };
+  const lookup = (model: string, options: { enabled?: boolean; linked?: boolean } = {}) =>
+    InferenceServerRegistry.servedContextWindowForModel({
+      instance: options.linked === false ? {} : { inferenceServerId: rtx },
+      inferenceServers: {
+        [rtx]: { baseUrl: `${HOST}/v1`, apiKey: "", enabled: options.enabled ?? true },
+      },
+      snapshots: [snapshot],
+      model,
+    });
+
+  it.each([
+    ["an exact id", "GLM-5.3-Flash", { window: 813056 }],
+    ["a harness slug", "t3-rtx/GLM-5.3-Flash", { window: 813056 }],
+    ["a model with only a trained window", "gemma.gguf", {}],
+    ["a model the server does not list", "GLM-4", { unmatched: rtx }],
+    ["a look-alike suffix", "notGLM-5.3-Flash", { unmatched: rtx }],
+  ] as const)("matches %s", (_, model, expected) => {
+    expect(lookup(model)).toEqual(expected);
+  });
+
+  it("knows nothing for an unlinked instance or a turned-off server", () => {
+    expect(lookup("GLM-5.3-Flash", { linked: false })).toEqual({});
+    expect(lookup("GLM-5.3-Flash", { enabled: false })).toEqual({});
+  });
+});

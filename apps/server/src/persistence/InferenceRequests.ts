@@ -135,6 +135,8 @@ function distribution(values: ReadonlyArray<number | null>) {
 const sum = (values: ReadonlyArray<number | null>) =>
   values.reduce<number>((total, value) => total + (value ?? 0), 0);
 
+const isoAt = (millis: number) => DateTime.formatIso(DateTime.makeUnsafe(millis));
+
 function aggregate(
   records: ReadonlyArray<InferenceRequestRecord>,
 ): ReadonlyArray<InferenceUsageRow> {
@@ -145,6 +147,13 @@ function aggregate(
   }
   return Array.from(groups.values(), (group) => {
     const first = group[0]!;
+    const lastFailure = group
+      .filter((record) => record.status === "failed" || record.status === "rejected")
+      .reduce<InferenceRequestRecord | undefined>(
+        (latest, record) =>
+          latest === undefined || record.receivedAt > latest.receivedAt ? record : latest,
+        undefined,
+      );
     return {
       serverId: first.serverId,
       model: first.model,
@@ -160,6 +169,14 @@ function aggregate(
           .map((record) => record.promptTokens),
       ),
       completionTokens: sum(group.map((record) => record.completionTokens)),
+      ...(lastFailure === undefined
+        ? {}
+        : {
+            lastFailure: {
+              status: lastFailure.status === "rejected" ? "rejected" : "failed",
+              at: isoAt(lastFailure.receivedAt),
+            },
+          }),
       queueWaitMs: distribution(group.map((record) => record.queueWaitMs)),
       ttftMs: distribution(group.map((record) => record.ttftMs)),
       decodeTokensPerSecond: distribution(group.map(decodeSpeed)),
@@ -171,8 +188,6 @@ function aggregate(
       a.purpose.localeCompare(b.purpose),
   );
 }
-
-const isoAt = (millis: number) => DateTime.formatIso(DateTime.makeUnsafe(millis));
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

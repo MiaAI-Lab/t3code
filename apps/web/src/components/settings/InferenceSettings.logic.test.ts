@@ -1,14 +1,16 @@
-import { InferenceServerId } from "@t3tools/contracts";
+import { InferenceServerId, type InferenceUsageRow } from "@t3tools/contracts";
 import * as Result from "effect/Result";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   describeInferenceModelContext,
   describeInferenceServerFallback,
+  describeInferenceServerProbeFreshness,
   EMPTY_INFERENCE_SERVER_DRAFT,
   inferenceServerFromDraft,
   inferenceServerIdFromName,
   inferenceServerRemovalPatch,
+  inferenceServerRequestHealth,
   normalizeInferenceServerBaseUrl,
   presentInferenceServers,
   resolveInferenceServerLink,
@@ -187,5 +189,90 @@ describe("resolveInferenceServerLink", () => {
     } as unknown as typeof servers;
     expect(resolveInferenceServerLink("old", removing)).toEqual({ kind: "missing", id: "old" });
     expect(presentInferenceServers(removing).map(([id]) => id)).toEqual(["rtx"]);
+  });
+});
+
+describe("describeInferenceServerProbeFreshness", () => {
+  const checkedAt = "2026-11-07T12:00:00.000Z";
+  const checkedMs = Date.parse(checkedAt);
+  const MINUTE = 60_000;
+
+  it("is fresh until two probe intervals pass, and wakes for that change", () => {
+    expect(
+      describeInferenceServerProbeFreshness(checkedAt, 5 * MINUTE, checkedMs + 10_000),
+    ).toEqual({ label: "Checked just now", stale: false, msUntilChange: 50_000 });
+    expect(
+      describeInferenceServerProbeFreshness(checkedAt, 45 * MINUTE, checkedMs + 80 * MINUTE),
+    ).toEqual({ label: "Checked 1h ago", stale: false, msUntilChange: 10 * MINUTE });
+    expect(
+      describeInferenceServerProbeFreshness(checkedAt, 5 * MINUTE, checkedMs + 10 * MINUTE),
+    ).toMatchObject({ label: "Checked 10m ago", stale: true, msUntilChange: MINUTE });
+  });
+
+  it("never goes stale with periodic checks off", () => {
+    expect(
+      describeInferenceServerProbeFreshness(checkedAt, 0, checkedMs + 3 * 60 * MINUTE),
+    ).toMatchObject({ stale: false });
+  });
+});
+
+describe("inferenceServerRequestHealth", () => {
+  const rtx = InferenceServerId.make("rtx");
+  const spark = InferenceServerId.make("spark1");
+  const distribution = { n: 0, p50: null, p95: null };
+  const usageRow = (overrides: Partial<InferenceUsageRow>): InferenceUsageRow => ({
+    serverId: rtx,
+    model: "m",
+    purpose: "interactive",
+    requests: 1,
+    failed: 0,
+    promptTokens: 10,
+    cachedPromptTokens: 0,
+    completionTokens: 1,
+    queueWaitMs: distribution,
+    ttftMs: distribution,
+    decodeTokensPerSecond: distribution,
+    ...overrides,
+  });
+  const summary = (rows: ReadonlyArray<InferenceUsageRow>) => ({
+    window: "24h" as const,
+    generatedAt: "2026-11-07T12:00:00.000Z",
+    rows,
+  });
+
+  it("says a server reports cached tokens only when one of its requests did", () => {
+    const rows = [
+      usageRow({ promptTokensWithCacheData: 10 }),
+      usageRow({ serverId: spark, promptTokensWithCacheData: 0 }),
+    ];
+    expect(inferenceServerRequestHealth(summary(rows), rtx).reportsCachedTokens).toBe(true);
+    expect(inferenceServerRequestHealth(summary(rows), spark).reportsCachedTokens).toBe(false);
+    expect(inferenceServerRequestHealth(summary([usageRow({})]), rtx).reportsCachedTokens).toBe(
+      false,
+    );
+  });
+
+  it("keeps the server's latest failure from the last hour", () => {
+    const rows = [
+      usageRow({ lastFailure: { status: "failed", at: "2026-11-07T11:20:00.000Z" } }),
+      usageRow({
+        purpose: "background",
+        lastFailure: { status: "rejected", at: "2026-11-07T11:40:00.000Z" },
+      }),
+      usageRow({
+        serverId: spark,
+        lastFailure: { status: "failed", at: "2026-11-07T11:50:00.000Z" },
+      }),
+    ];
+    expect(inferenceServerRequestHealth(summary(rows), rtx).recentFailure).toEqual({
+      status: "rejected",
+      at: "2026-11-07T11:40:00.000Z",
+    });
+    expect(
+      inferenceServerRequestHealth(
+        summary([usageRow({ lastFailure: { status: "failed", at: "2026-11-07T10:59:00.000Z" } })]),
+        rtx,
+      ).recentFailure,
+    ).toBeNull();
   });
 });

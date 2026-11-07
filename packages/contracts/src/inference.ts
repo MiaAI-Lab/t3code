@@ -99,6 +99,10 @@ export const InferenceUsageRow = Schema.Struct({
   /** Prompt tokens of the requests whose server reported cache usage; the denominator for a cached share. */
   promptTokensWithCacheData: Schema.optional(NonNegativeInt),
   completionTokens: NonNegativeInt,
+  /** The window's most recent failed or rejected request. */
+  lastFailure: Schema.optional(
+    Schema.Struct({ status: Schema.Literals(["failed", "rejected"]), at: IsoDateTime }),
+  ),
   queueWaitMs: Distribution,
   ttftMs: Distribution,
   decodeTokensPerSecond: Distribution,

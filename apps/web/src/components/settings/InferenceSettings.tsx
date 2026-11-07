@@ -1,19 +1,29 @@
 import type {
+  EnvironmentId,
   InferenceServerConfig,
   InferenceServerId,
   InferenceServerSnapshot,
   InferenceServerStatus,
 } from "@t3tools/contracts";
 import { INFERENCE_SERVER_STATUS_LABELS } from "@t3tools/client-runtime/state/provider-instance-display";
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
+import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
+import * as Duration from "effect/Duration";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { PlusIcon } from "lucide-react";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 
-import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
+import {
+  useClientSettings,
+  useEnvironmentSettings,
+  useUpdateEnvironmentSettings,
+} from "../../hooks/useSettings";
 import type { EnvironmentPresentation } from "../../state/environments";
+import { inferenceUsageAtom } from "../../state/inference";
 import { serverEnvironment } from "../../state/server";
 import { useEnvironmentSessionState } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { formatShortTimestamp } from "../../timestampFormat";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -32,8 +42,10 @@ import {
   describeInferenceModelContext,
   describeInferenceServerFallback,
   describeInferenceServerLoad,
+  describeInferenceServerProbeFreshness,
   inferenceServerDisplayName,
   inferenceServerRemovalPatch,
+  inferenceServerRequestHealth,
   presentInferenceServers,
 } from "./InferenceSettings.logic";
 import {
@@ -55,6 +67,7 @@ const STATUS_BADGE_VARIANTS = {
 } as const satisfies Record<InferenceServerStatus, string>;
 
 const NO_SNAPSHOTS: ReadonlyArray<InferenceServerSnapshot> = [];
+const USAGE_WINDOW = "24h";
 
 export function InferenceSettingsPanel() {
   const { scope, environment } = useSettingsScope();
@@ -101,6 +114,15 @@ function EnvironmentInferenceServers({
   const servers = useEnvironmentSettings(environmentId, (settings) => settings.inferenceServers);
   const snapshots =
     useAtomValue(serverEnvironment.inferenceServersValueAtom(environmentId)) ?? NO_SNAPSHOTS;
+  const probeIntervalMs = useEnvironmentSettings(environmentId, (settings) =>
+    Duration.toMillis(
+      resolveServerBackgroundActivitySettings(settings).providerHealthRefreshInterval,
+    ),
+  );
+  const canReadUsage = useAtomValue(
+    serverEnvironment.getInferenceUsage.permissionAtom(environmentId),
+  );
+  const refreshUsage = useAtomRefresh(inferenceUsageAtom({ environmentId, window: USAGE_WINDOW }));
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
   const canRefresh = useAtomValue(
     serverEnvironment.refreshInferenceServers.permissionAtom(environmentId),
@@ -122,6 +144,7 @@ function EnvironmentInferenceServers({
   const refreshAll = async () => {
     setRefreshing(true);
     await refresh({ environmentId, input: {} });
+    if (canReadUsage) refreshUsage();
     setRefreshing(false);
   };
 
@@ -164,7 +187,10 @@ function EnvironmentInferenceServers({
             <InferenceServerRow
               key={id}
               id={id}
+              environmentId={environmentId}
               config={config}
+              probeIntervalMs={probeIntervalMs}
+              canReadUsage={canReadUsage}
               fallback={describeInferenceServerFallback(config, servers)}
               snapshot={snapshots.find((candidate) => candidate.id === id)}
               readOnly={readOnly}
@@ -197,7 +223,10 @@ function EnvironmentInferenceServers({
 
 function InferenceServerRow({
   id,
+  environmentId,
   config,
+  probeIntervalMs,
+  canReadUsage,
   fallback,
   snapshot,
   readOnly,
@@ -206,7 +235,10 @@ function InferenceServerRow({
   onRemove,
 }: {
   readonly id: InferenceServerId;
+  readonly environmentId: EnvironmentId;
   readonly config: InferenceServerConfig;
+  readonly probeIntervalMs: number;
+  readonly canReadUsage: boolean;
   readonly fallback: string | null;
   readonly snapshot: InferenceServerSnapshot | undefined;
   readonly readOnly: boolean;
@@ -245,6 +277,15 @@ function InferenceServerRow({
           current ? (
             <div className="grid gap-1">
               {current.message ? <p className="wrap-anywhere">{current.message}</p> : null}
+              {current.checkedAt ? (
+                <InferenceServerProbeFreshness
+                  checkedAt={current.checkedAt}
+                  probeIntervalMs={probeIntervalMs}
+                />
+              ) : null}
+              {canReadUsage ? (
+                <InferenceServerRequestHealth environmentId={environmentId} serverId={id} />
+              ) : null}
               {load ? <p>{load}</p> : null}
               {current.models.length > 0 ? (
                 <ul className="grid gap-0.5">
@@ -283,6 +324,67 @@ function InferenceServerRow({
         ) : null
       }
     />
+  );
+}
+
+/** Re-renders only when the label or staleness changes, at most once a minute. */
+function InferenceServerProbeFreshness({
+  checkedAt,
+  probeIntervalMs,
+}: {
+  readonly checkedAt: string;
+  readonly probeIntervalMs: number;
+}) {
+  const subscribe = (onChange: () => void) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = () => {
+      const delayMs = describeInferenceServerProbeFreshness(
+        checkedAt,
+        probeIntervalMs,
+        Date.now(),
+      )?.msUntilChange;
+      if (delayMs === undefined || delayMs === null) return;
+      timer = setTimeout(() => {
+        onChange();
+        schedule();
+      }, delayMs);
+    };
+    schedule();
+    return () => clearTimeout(timer);
+  };
+  const read = () => describeInferenceServerProbeFreshness(checkedAt, probeIntervalMs, Date.now());
+  const readLabel = () => read()?.label ?? null;
+  const readStale = () => read()?.stale ?? false;
+  const label = useSyncExternalStore(subscribe, readLabel, readLabel);
+  const stale = useSyncExternalStore(subscribe, readStale, readStale);
+  if (label === null) return null;
+  return stale ? <p className="text-warning">{label}, overdue</p> : <p>{label}</p>;
+}
+
+function InferenceServerRequestHealth({
+  environmentId,
+  serverId,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly serverId: InferenceServerId;
+}) {
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  const summary = AsyncResult.getOrElse(
+    useAtomValue(inferenceUsageAtom({ environmentId, window: USAGE_WINDOW })),
+    () => null,
+  );
+  if (summary === null) return null;
+  const health = inferenceServerRequestHealth(summary, serverId);
+  return (
+    <>
+      <p>Reports cached tokens: {health.reportsCachedTokens ? "yes" : "unknown"}</p>
+      {health.recentFailure ? (
+        <p>
+          Last request {health.recentFailure.status} at{" "}
+          {formatShortTimestamp(health.recentFailure.at, timestampFormat)}
+        </p>
+      ) : null}
+    </>
   );
 }
 

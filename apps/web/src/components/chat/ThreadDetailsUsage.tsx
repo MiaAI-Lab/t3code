@@ -1,9 +1,14 @@
 import type {
+  EnvironmentId,
   ProviderInstanceId,
   ServerProvider,
   ServerProviderUsageWindow,
+  ThreadId,
   UsageLimitSourceSnapshots,
 } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
+import { formatTokens } from "@t3tools/shared/usageFormat";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import {
   collectProviderUsageLimits,
   formatDuration,
@@ -18,6 +23,12 @@ import { usePrimarySettings } from "../../hooks/useSettings";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window";
 import { formatContextWindowTokens } from "../../lib/contextWindow";
+import {
+  MISSING_MEASUREMENT,
+  formatLastInferenceRequest,
+  formatMeasuredSeconds,
+} from "../../lib/inferenceMetrics";
+import { hasInferenceServersAtom, threadInferenceRequestAtom } from "../../state/inference";
 import { cn } from "../../lib/utils";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -130,6 +141,50 @@ export function ThreadDetailsContext({ usage }: { readonly usage: ContextWindowS
                   {formatContextWindowCompactionMessage(null, threshold)}
                 </span>
               ) : null}
+            </>
+          }
+        />
+      </div>
+    </ThreadDetailsSection>
+  );
+}
+
+interface ThreadKey {
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
+}
+
+/** Measured numbers for the thread's latest request through T3's gateway, read when details open. */
+export function ThreadDetailsLastRequest(thread: ThreadKey) {
+  const hasInferenceServers = useAtomValue(hasInferenceServersAtom(thread.environmentId));
+  return hasInferenceServers ? <LastRequestSection {...thread} /> : null;
+}
+
+function LastRequestSection({ environmentId, threadId }: ThreadKey) {
+  const result = useAtomValue(threadInferenceRequestAtom({ environmentId, threadId }));
+  const last = AsyncResult.getOrElse(result, () => null)?.last ?? null;
+  if (last === null) return null;
+  const summary = formatLastInferenceRequest(last);
+  const prompt = last.promptTokens === null ? MISSING_MEASUREMENT : formatTokens(last.promptTokens);
+  return (
+    <ThreadDetailsSection
+      headingId="thread-details-last-request-heading"
+      title="Last request"
+      showHeading={false}
+    >
+      <div className="grid grid-cols-[auto_minmax(3rem,1fr)_auto] gap-x-3 text-xs">
+        <UsageRow
+          label="Last request"
+          fill={null}
+          tone={null}
+          value={`${prompt} prompt · TTFT ${formatMeasuredSeconds(last.ttftMs)}`}
+          ariaValue={summary}
+          tooltip={
+            <>
+              <span className="text-foreground">{summary}</span>
+              <span className="text-muted-foreground">
+                {last.model} · Measured by T3&apos;s gateway
+              </span>
             </>
           }
         />

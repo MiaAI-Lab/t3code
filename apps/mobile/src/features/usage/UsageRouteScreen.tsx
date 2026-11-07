@@ -935,17 +935,22 @@ function ModelsSection(props: {
     <SettingsSection title="By model">
       <View className="flex-row flex-wrap">
         {ordered.map((model, index) => {
-          const localCost = localUsageModelCost(model.model, props.localModels);
-          const costUnknown = isModelCostUnknown(model) || localCost === "local";
+          const localCost = localUsageModelCost(model, props.localModels);
+          const costUnknown = localCost !== null || isModelCostUnknown(model);
           const cost =
-            localCost === "local"
-              ? "Local"
-              : isModelCostUnknown(model)
-                ? "Unpriced"
-                : localCost === "estimate"
-                  ? `~${formatUsd(model.costUsd)}`
+            localCost === "estimate"
+              ? `~${formatUsd(model.estimatedCostUsd)}`
+              : localCost === "local"
+                ? "Local"
+                : isModelCostUnknown(model)
+                  ? "Unpriced"
                   : formatUsd(model.costUsd);
-          const rates = localCost === "local" ? "local" : "no known rates";
+          const rates =
+            localCost === "estimate"
+              ? "estimated API spend"
+              : localCost === "local"
+                ? "local"
+                : "no known rates";
           return (
             <View
               key={`${model.provider}:${model.model}`}
@@ -966,7 +971,7 @@ function ModelsSection(props: {
                 </Text>
                 <Text className="text-sm text-foreground-muted">
                   {metric === "tokens"
-                    ? `${formatPercent(model.tokenShare)} of tokens · ${costUnknown ? rates : cost}`
+                    ? `${formatPercent(model.tokenShare)} of tokens · ${localCost === "estimate" || !costUnknown ? cost : rates}`
                     : costUnknown
                       ? `${rates} · ${formatTokens(model.totalTokens)} tokens`
                       : `${formatPercent(model.costShare)} of cost · ${formatTokens(model.totalTokens)} tokens`}

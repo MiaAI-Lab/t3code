@@ -7,6 +7,7 @@ import {
   createOverrideRateTable,
   lookupRate,
   parseRateTable,
+  priceLocalUsage,
   priceUsage,
 } from "./usagePricing.ts";
 
@@ -53,6 +54,30 @@ describe("usage pricing", () => {
       });
     }
     expect(cacheSavingsUsd(table, record("example-model"), overrides)).toBe(1.5);
+  });
+
+  it("prices a local run only from a price the user set, as an estimate", () => {
+    const table = parseRateTable({ "zai/glm-5": rate(1e-6) });
+    const overrides = createOverrideRateTable({
+      "glm-5-custom": { inputCostPerMillionTokens: 2, outputCostPerMillionTokens: 8 },
+    });
+    const unpriced = {
+      costUsd: 0,
+      costSource: "unpriced",
+      categoryCostUsd: null,
+      speedPremiumUsd: 0,
+    };
+
+    expect(priceUsage(table, record("glm-5")).costUsd).toBe(8);
+    expect(priceLocalUsage(table, record("glm-5", 4), overrides, false)).toEqual({
+      ...unpriced,
+      estimatedCostUsd: 0,
+    });
+    expect(priceLocalUsage(table, record("glm-5-custom", 4), overrides, false)).toEqual({
+      ...unpriced,
+      estimatedCostUsd: 14,
+    });
+    expect(priceLocalUsage(table, record("glm-5"), overrides, true).estimatedCostUsd).toBe(8);
   });
 
   it("prices Cursor cache savings at the base model rate", () => {

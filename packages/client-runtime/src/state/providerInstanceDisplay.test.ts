@@ -3,10 +3,10 @@ import {
   ProviderDriverKind,
   type InferenceServerSnapshot,
 } from "@t3tools/contracts";
+import { collectLocalUsageModels } from "@t3tools/shared/usageMerge";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  collectLocalUsageModels,
   localUsageModelCost,
   normalizeProviderAccentColor,
   providerAccentForegroundColor,
@@ -123,28 +123,26 @@ describe("providerInstanceInferenceLabel", () => {
 
 describe("localUsageModelCost", () => {
   const model = (slug: string) => ({ slug, name: slug, isCustom: false, capabilities: null });
-  const models = collectLocalUsageModels([
-    {
-      inferenceServers: [
-        { id: InferenceServerId.make("rtx"), enabled: true, models: [{ id: "GLM-5.3-Flash" }] },
-        { id: InferenceServerId.make("old"), enabled: false, models: [{ id: "qwen3" }] },
-      ],
-      providers: [
-        { inference: "local", models: [model("llama3")] },
-        { inferenceServerId: InferenceServerId.make("old"), models: [model("mistral")] },
-        { models: [model("gpt-5")] },
-      ],
-      priceOverrides: { "glm-5.3-flash": {} },
-      modelAliases: undefined,
-    },
-  ]);
+  const models = collectLocalUsageModels(
+    [
+      { inference: "local", models: [model("llama3")] },
+      { inferenceServerId: InferenceServerId.make("old"), models: [model("mistral")] },
+      { models: [model("gpt-5")] },
+    ],
+    [
+      { id: InferenceServerId.make("rtx"), enabled: true, models: [{ id: "GLM-5.3-Flash" }] },
+      { id: InferenceServerId.make("old"), enabled: false, models: [{ id: "qwen3" }] },
+    ],
+  );
+  const cost = (name: string, estimatedCostUsd = 0) =>
+    localUsageModelCost({ model: name, estimatedCostUsd }, models);
 
   it("marks local models, matching a provider prefix, and estimates only priced ones", () => {
-    expect(localUsageModelCost("glm-5.3-flash", models)).toBe("estimate");
-    expect(localUsageModelCost("t3-rtx/GLM-5.3-Flash", models)).toBe("local");
-    expect(localUsageModelCost("llama3", models)).toBe("local");
-    expect(localUsageModelCost("qwen3", models)).toBeNull();
-    expect(localUsageModelCost("mistral", models)).toBeNull();
-    expect(localUsageModelCost("gpt-5", models)).toBeNull();
+    expect(cost("glm-5.3-flash", 1.5)).toBe("estimate");
+    expect(cost("t3-rtx/GLM-5.3-Flash")).toBe("local");
+    expect(cost("llama3")).toBe("local");
+    expect(cost("qwen3")).toBeNull();
+    expect(cost("mistral")).toBeNull();
+    expect(cost("gpt-5")).toBeNull();
   });
 });

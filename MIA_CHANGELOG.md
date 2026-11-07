@@ -18,8 +18,8 @@ the official T3 Code mobile app keeps working against this fork's server.
   `scripts/mia-build-remote-runtime.sh [arm64-host]` before `vp run dist:desktop:linux`.
 - **Add project dialog.** One window in two steps: pick a machine (this computer, connected
   machines, or a host from `~/.ssh/config`, which connects it), then click through its folders or
-  type a path and press **Add project**. It opens from **Add project…** at the bottom of the New
-  thread list, **Ctrl+K → Add project**, and the sidebar. Cloning and empty projects moved to
+  type a path and press **Add project**. It opens from the **New project** button next to **New
+  thread** in the sidebar and from **Ctrl+K → Add project**; the New thread list holds projects only. Cloning and empty projects moved to
   **Ctrl+K → Clone repository** and the dialog's **Clone or create new…**.
 - **Add a server from another machine.** Settings → Inference on one machine lists the servers
   registered on your other connected machines with **Add here**, prefilled with the address this

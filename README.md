@@ -101,8 +101,8 @@ Linked providers send their requests through T3 Code, which:
 ### Projects on any machine
 
 - **Add project**: pick a machine, then click through its folders. Hosts in your `~/.ssh/config`
-  are listed too; picking one connects it. Open it from **Add project…** at the bottom of the New
-  thread list, from **Ctrl+K**, or from the sidebar.
+  are listed too; picking one connects it. Open it with the **New project** button next to
+  **New thread** in the sidebar, or from **Ctrl+K**.
 - **SSH machines run this fork**: the desktop app carries its own server for x64 and arm64 (such
   as a DGX Spark) and installs it on machines you add over SSH, so inference servers, the gateway
   and image checks work there too. Nothing is downloaded from upstream.

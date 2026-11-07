@@ -58,6 +58,7 @@ it.effect("a session launches managed only with its own credential for a Respons
               ),
             backgroundCredential: () => Effect.die("unused"),
             instanceCredential: () => Effect.die("unused"),
+            attributeSessions: () => Effect.die("unused"),
           }),
         ),
       );

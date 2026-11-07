@@ -9,6 +9,7 @@ import {
   InferenceServerId,
   type InferenceServerSnapshot,
   MessageId,
+  ProviderInstanceId,
   RunId,
   ScheduledTaskId,
   ThreadId,
@@ -192,6 +193,11 @@ const makeHarness = Effect.fnUntraced(function* (threads: Layer.Layer<never> = L
     "hang-token": { serverId: InferenceServerId.make("hang"), threadId: thread },
     "redirect-token": { serverId: InferenceServerId.make("redirect") },
     "dead-token": { serverId: InferenceServerId.make("dead"), threadId: thread },
+    "opencode-token": { serverId: rtx, providerInstanceId: ProviderInstanceId.make("opencode") },
+    "other-instance-token": {
+      serverId: rtx,
+      providerInstanceId: ProviderInstanceId.make("opencode_work"),
+    },
   };
   const services = yield* Layer.build(
     HttpRouter.serve(Layer.mergeAll(InferenceGateway.routeLayer, upstream), {
@@ -219,6 +225,8 @@ const makeHarness = Effect.fnUntraced(function* (threads: Layer.Layer<never> = L
         ),
         Layer.mock(McpSessionRegistry.McpSessionRegistry)({
           resolveInference: (token) => Effect.succeed(tokens[token]),
+          harnessSessionThread: (instanceId, sessionId) =>
+            Effect.succeed(instanceId === "opencode" && sessionId === "ses_a" ? thread : undefined),
         }),
         Layer.mock(SecretResolver.SecretResolver)({}),
         Layer.mock(InferenceServerRegistry.InferenceServerRegistry)({
@@ -479,6 +487,42 @@ it.live("attributes a request to its active run, its delegating run and its sche
       runId,
       parentRunId: "parent-run",
     });
+  }),
+);
+
+it.live("attributes a shared harness's request to its session's thread, within its instance", () =>
+  Effect.gen(function* () {
+    const runId = RunId.make("run-1");
+    const { call, seen, records } = yield* makeHarness(
+      Layer.mock(ThreadManagementService.ThreadManagementService)({
+        getThreadShell: () => Effect.succeed({ activeRunId: runId, lineage: {} } as never),
+        getThreadRecords: () => Effect.succeed({ runs: [], messages: [] } as never),
+      }),
+    );
+    const send = (token: string, sessionId: string) =>
+      call(
+        "rtx/v1/chat/completions",
+        post(token, { model: "m", stream: true }, { "x-opencode-session-id": sessionId }),
+      ).pipe(Effect.flatMap((response) => Effect.promise(() => response.text())));
+
+    yield* send("opencode-token", "ses_a");
+    expect((yield* Queue.take(seen)).headers["x-opencode-session-id"]).toBeUndefined();
+    expect(yield* Queue.take(records)).toMatchObject({
+      threadId: thread,
+      runId,
+      purpose: "interactive",
+    });
+    for (const [token, sessionId] of [
+      ["other-instance-token", "ses_a"],
+      ["opencode-token", "ses_unknown"],
+    ] as const) {
+      yield* send(token, sessionId);
+      expect(yield* Queue.take(records)).toMatchObject({
+        threadId: null,
+        runId: null,
+        purpose: "interactive",
+      });
+    }
   }),
 );
 

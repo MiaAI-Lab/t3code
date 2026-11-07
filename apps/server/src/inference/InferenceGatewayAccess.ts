@@ -112,6 +112,7 @@ const make = Effect.gen(function* () {
         return yield* credentialFor(instanceId, protocol, instanceId);
       },
     ),
+    attributeSessions: credentials.attributeHarnessSessions,
   });
 });
 

@@ -83,7 +83,8 @@ export interface OpenCodeGatewaySource {
   readonly resolution: Effect.Effect<InferenceGateway.ManagedServerResolution | undefined>;
   /**
    * For an OpenCode server process T3 starts: one credential per process, attributed to the
-   * instance, revoked when the process scope closes. Requests through it carry no thread id.
+   * instance, revoked when the process scope closes. The gateway attributes a request to a thread
+   * only through the session id OpenCode 2 sends, which the adapter maps while it tracks the thread.
    */
   readonly forProcess: (
     environment: NodeJS.ProcessEnv,

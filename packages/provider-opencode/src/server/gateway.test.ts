@@ -78,6 +78,7 @@ const access = (resolution: InferenceGateway.ManagedServerResolution) =>
           ? { server: resolution.server, credential: { ...credential, token: `held:${id}` } }
           : undefined,
       ),
+    attributeSessions: () => Effect.die("unused"),
   });
 
 it.effect("an OpenCode process holds an instance credential; a thread process uses its own", () =>

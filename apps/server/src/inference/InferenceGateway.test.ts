@@ -1,18 +1,34 @@
 // @effect-diagnostics globalFetchInEffect:off -- the test calls the gateway as an outside HTTP client.
 // @effect-diagnostics abortControllerInEffect:off -- aborting fetch is how that client disconnects.
+import * as NodeNet from "node:net";
+
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import { expect, it } from "@effect/vitest";
-import { InferenceServerId, MessageId, RunId, ScheduledTaskId, ThreadId } from "@t3tools/contracts";
+import {
+  InferenceServerId,
+  type InferenceServerSnapshot,
+  MessageId,
+  RunId,
+  ScheduledTaskId,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
+import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import {
   FetchHttpClient,
+  HttpClient,
+  HttpClientError,
+  HttpClientResponse,
   HttpRouter,
   HttpServer,
   HttpServerRequest,
@@ -25,8 +41,28 @@ import * as InferenceRequests from "../persistence/InferenceRequests.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as InferenceAdmission from "./InferenceAdmission.ts";
 import * as InferenceGateway from "./InferenceGateway.ts";
+import * as InferenceRouting from "./InferenceRouting.ts";
+import * as InferenceServerRegistry from "./InferenceServerRegistry.ts";
 
 const thread = ThreadId.make("thread-1");
+const rtx = InferenceServerId.make("rtx");
+const spark = InferenceServerId.make("spark1");
+
+const snapshotOf = (
+  id: InferenceServerId,
+  overrides: Partial<InferenceServerSnapshot> = {},
+): InferenceServerSnapshot => ({
+  id,
+  displayName: id,
+  baseUrl: `http://${id}.test/v1`,
+  enabled: true,
+  status: "ready",
+  checkedAt: null,
+  models: [{ id: "m", servedContextWindow: 100_000 }],
+  apiProtocols: ["chat-completions", "responses"],
+  ...overrides,
+});
+
 const encoder = new TextEncoder();
 const sse = (events: ReadonlyArray<unknown>) =>
   events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("") + "data: [DONE]\n\n";
@@ -45,6 +81,17 @@ interface Seen {
   readonly headers: Readonly<Record<string, string | undefined>>;
   readonly body: unknown;
 }
+
+/** A port that was just freed, so connecting to it is refused. */
+const closedPort = Effect.promise(
+  () =>
+    new Promise<number>((resolve) => {
+      const server = NodeNet.createServer().listen(0, "127.0.0.1", () => {
+        const { port } = server.address() as NodeNet.AddressInfo;
+        server.close(() => resolve(port));
+      });
+    }),
+);
 
 /** Fake upstreams mounted beside the gateway on one in-process server. */
 const makeHarness = Effect.fnUntraced(function* (threads: Layer.Layer<never> = Layer.empty) {
@@ -123,13 +170,16 @@ const makeHarness = Effect.fnUntraced(function* (threads: Layer.Layer<never> = L
     "background-token": { serverId: InferenceServerId.make("rtx") },
     "hang-token": { serverId: InferenceServerId.make("hang"), threadId: thread },
     "redirect-token": { serverId: InferenceServerId.make("redirect") },
+    "dead-token": { serverId: InferenceServerId.make("dead"), threadId: thread },
   };
   const services = yield* Layer.build(
     HttpRouter.serve(Layer.mergeAll(InferenceGateway.routeLayer, upstream), {
       disableListenLog: true,
     }).pipe(
       // The test server's own client prefixes its origin; the gateway dials absolute URLs.
-      Layer.provide(InferenceGateway.layer.pipe(Layer.provide(FetchHttpClient.layer))),
+      Layer.provide(
+        InferenceGateway.layer.pipe(Layer.provide([FetchHttpClient.layer, InferenceRouting.layer])),
+      ),
       Layer.provideMerge(NodeHttpServer.layerTest),
       Layer.provideMerge(ServerSettings.layerTest()),
       Layer.provide([
@@ -150,6 +200,13 @@ const makeHarness = Effect.fnUntraced(function* (threads: Layer.Layer<never> = L
           resolveInference: (token) => Effect.succeed(tokens[token]),
         }),
         Layer.mock(SecretResolver.SecretResolver)({}),
+        Layer.mock(InferenceServerRegistry.InferenceServerRegistry)({
+          current: Effect.succeed([
+            snapshotOf(InferenceServerId.make("rtx"), { models: [{ id: "GLM-5.3-Flash" }] }),
+            // Reported ready, so the gateway really dials it and must classify the refusal.
+            snapshotOf(InferenceServerId.make("dead")),
+          ]),
+        }),
         threads,
       ]),
     ),
@@ -166,6 +223,12 @@ const makeHarness = Effect.fnUntraced(function* (threads: Layer.Layer<never> = L
       [InferenceServerId.make("rtx")]: server("up"),
       [InferenceServerId.make("hang")]: server("hang"),
       [InferenceServerId.make("redirect")]: server("redirect"),
+      [InferenceServerId.make("dead")]: {
+        baseUrl: `http://127.0.0.1:${yield* closedPort}/v1`,
+        apiKey: "dead-secret",
+        enabled: true,
+        fallbackServerId: InferenceServerId.make("rtx"),
+      },
     },
   });
   const call = (path: string, init: RequestInit = {}) =>
@@ -261,6 +324,26 @@ it.live("refuses unknown credentials, other servers, and routes off the allowlis
   }),
 );
 
+it.live("serves a refused primary's request from its fallback over real sockets", () =>
+  Effect.gen(function* () {
+    const { call, seen, records } = yield* makeHarness();
+    const response = yield* call(
+      "dead/v1/chat/completions",
+      post("dead-token", { model: "GLM-5.3-Flash", stream: true, messages: [] }),
+    );
+    expect(response.status).toBe(200);
+    expect(yield* Effect.promise(() => response.text())).toBe(CHAT_STREAM);
+    const upstream = yield* Queue.take(seen);
+    expect(upstream.url).toBe("/up/v1/chat/completions");
+    expect(upstream.headers.authorization).toBe("Bearer upstream-secret");
+    expect(yield* Queue.take(records)).toMatchObject({
+      status: "completed",
+      serverId: "rtx",
+      fallbackFrom: "dead",
+    });
+  }),
+);
+
 it.live("answers an upstream redirect with an error instead of following it", () =>
   Effect.gen(function* () {
     const { call, seen, records } = yield* makeHarness();
@@ -302,17 +385,28 @@ it.live("records a client disconnect mid-stream and frees the slot", () =>
   }),
 );
 
-it.live("attributes a request to the thread's active run and its scheduled origin", () =>
+it.live("attributes a request to its active run, its delegating run and its scheduled origin", () =>
   Effect.gen(function* () {
     const runId = RunId.make("run-1");
     const userMessageId = MessageId.make("message-1");
     const { call, records } = yield* makeHarness(
       Layer.mock(ThreadManagementService.ThreadManagementService)({
-        getThreadShell: () => Effect.succeed({ activeRunId: runId } as never),
+        getThreadShell: () =>
+          Effect.succeed({
+            activeRunId: runId,
+            lineage: { relationshipToParent: "subagent" },
+          } as never),
         getThreadRecords: () =>
           Effect.succeed({
             runs: [{ id: runId, userMessageId }],
             messages: [{ id: userMessageId, scheduledTaskId: ScheduledTaskId.make("task-1") }],
+            contextTransfers: [
+              {
+                type: "subagent_spawn",
+                targetThreadId: thread,
+                sourcePoint: { threadId: "parent", runId: "parent-run" },
+              },
+            ],
           } as never),
       }),
     );
@@ -321,6 +415,452 @@ it.live("attributes a request to the thread's active run and its scheduled origi
       post("thread-token", { model: "m", stream: true }),
     );
     yield* Effect.promise(() => response.text());
-    expect(yield* Queue.take(records)).toMatchObject({ purpose: "scheduled", runId });
+    expect(yield* Queue.take(records)).toMatchObject({
+      purpose: "scheduled",
+      runId,
+      parentRunId: "parent-run",
+    });
+  }),
+);
+
+interface Exchange {
+  readonly url: string;
+  readonly headers: Readonly<Record<string, string | undefined>>;
+  readonly body: unknown;
+  readonly aborted: Deferred.Deferred<void>;
+  readonly reply: Deferred.Deferred<Response, Error>;
+}
+
+/** A web response whose body the test writes to, chunk by chunk. */
+const controlledBody = (init: ResponseInit = {}) => {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const body = new ReadableStream<Uint8Array>({
+    start: (control) => {
+      controller = control;
+    },
+  });
+  return {
+    response: new Response(body, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+      ...init,
+    }),
+    push: (text: string) => Effect.sync(() => controller.enqueue(encoder.encode(text))),
+    end: Effect.sync(() => controller.close()),
+    fail: Effect.sync(() => controller.error(new Error("upstream reset"))),
+  };
+};
+
+interface LifecycleOptions {
+  readonly fallback?: boolean;
+  readonly snapshots?: ReadonlyArray<InferenceServerSnapshot>;
+}
+
+const connectionError = (code: string) =>
+  Object.assign(new Error("fetch failed"), { cause: Object.assign(new Error(code), { code }) });
+
+const makeLifecycle = Effect.fnUntraced(function* (options: LifecycleOptions = {}) {
+  const exchanges = yield* Queue.unbounded<Exchange>();
+  const records = yield* Queue.unbounded<InferenceRequests.InferenceRequestRecord>();
+  const queued = yield* Queue.unbounded<InferenceServerId>();
+  const gate = yield* Deferred.make<void>();
+  const gates: Record<string, Deferred.Deferred<void>> = {
+    [rtx]: gate,
+    [spark]: yield* Deferred.make<void>(),
+  };
+  const available: Record<string, boolean> = { [rtx]: false, [spark]: true };
+  const releases: Record<string, number> = {};
+  const snapshots = { current: options.snapshots ?? [snapshotOf(rtx), snapshotOf(spark)] };
+
+  const upstream = HttpClient.make((request, url, signal) =>
+    Effect.gen(function* () {
+      const aborted = yield* Deferred.make<void>();
+      if (signal.aborted) Deferred.doneUnsafe(aborted, Exit.void);
+      signal.addEventListener("abort", () => Deferred.doneUnsafe(aborted, Exit.void));
+      const reply = yield* Deferred.make<Response, Error>();
+      const body =
+        request.body._tag === "Uint8Array"
+          ? JSON.parse(new TextDecoder().decode(request.body.body))
+          : undefined;
+      yield* Queue.offer(exchanges, {
+        url: url.toString(),
+        headers: request.headers,
+        body,
+        aborted,
+        reply,
+      });
+      const response = yield* Deferred.await(reply).pipe(
+        Effect.mapError(
+          (cause) =>
+            new HttpClientError.HttpClientError({
+              reason: new HttpClientError.TransportError({ request, cause }),
+            }),
+        ),
+      );
+      return HttpClientResponse.fromWeb(request, response);
+    }),
+  );
+
+  const gateway = yield* Layer.build(
+    InferenceGateway.layer.pipe(
+      Layer.provide(InferenceRouting.layer),
+      Layer.provide([
+        Layer.succeed(HttpClient.HttpClient, upstream),
+        ServerSettings.layerTest({
+          inferenceServers: {
+            [rtx]: {
+              baseUrl: "http://rtx.test/v1",
+              apiKey: "rtx-key",
+              enabled: true,
+              ...(options.fallback === true ? { fallbackServerId: spark } : {}),
+            },
+            [spark]: { baseUrl: "http://spark1.test/v1", apiKey: "spark-key", enabled: true },
+          },
+        }),
+        Layer.mock(InferenceServerRegistry.InferenceServerRegistry)({
+          current: Effect.sync(() => snapshots.current),
+        }),
+        NodeCrypto.layer,
+        Layer.succeed(InferenceRequests.InferenceRequestLog, {
+          record: (record) => Queue.offer(records, record).pipe(Effect.asVoid),
+          summarize: () => Effect.die("unused"),
+          latestForThread: () => Effect.die("unused"),
+        }),
+        Layer.succeed(InferenceAdmission.InferenceAdmission, {
+          // Mirrors the real queue: enqueueing is the acquire, waiting for a slot is interruptible.
+          admit: (ticket) =>
+            Effect.acquireRelease(Queue.offer(queued, ticket.serverId), () =>
+              Effect.sync(() => {
+                releases[ticket.serverId] = (releases[ticket.serverId] ?? 0) + 1;
+              }),
+            ).pipe(Effect.andThen(Deferred.await(gates[ticket.serverId]!))),
+          available: (serverId) => Effect.succeed(available[serverId] === true),
+        }),
+        Layer.mock(McpSessionRegistry.McpSessionRegistry)({
+          resolveInference: () =>
+            Effect.succeed({ serverId: InferenceServerId.make("rtx"), threadId: thread }),
+        }),
+        Layer.mock(SecretResolver.SecretResolver)({}),
+      ]),
+    ),
+  ).pipe(Effect.map((context) => Context.get(context, InferenceGateway.InferenceGateway)));
+
+  /** Starts a request the way the HTTP server does: in a request scope the test closes. */
+  const start = Effect.fnUntraced(function* (
+    body: unknown = { model: "m", stream: true },
+    route = "chat/completions",
+  ) {
+    const requestScope = yield* Scope.make();
+    const handler = yield* gateway
+      .handle(
+        HttpServerRequest.fromWeb(
+          new Request(`http://gateway.test/inference/rtx/v1/${route}`, {
+            method: "POST",
+            headers: { authorization: "Bearer thread-token", "content-type": "application/json" },
+            body: JSON.stringify(body),
+          }),
+        ),
+      )
+      .pipe(Scope.provide(requestScope), Effect.forkChild({ startImmediately: true }));
+    /** The client went away: the server interrupts the handler and closes the request scope. */
+    const disconnect = Fiber.interrupt(handler).pipe(
+      Effect.andThen(Scope.close(requestScope, Exit.void)),
+    );
+    /** Answers the request upstream and plays the client reading the whole response. */
+    const serve = Effect.fnUntraced(function* (exchange: Exchange, response: Response) {
+      yield* Deferred.succeed(exchange.reply, response);
+      const sent = yield* Fiber.join(handler);
+      yield* Stream.runDrain(bodyText(sent));
+      yield* Scope.close(requestScope, Exit.void);
+      return sent;
+    });
+    return { handler, requestScope, disconnect, serve };
+  });
+
+  /** Exactly one terminal record and one admission release per server tried. */
+  const settledOnce = Effect.fnUntraced(function* (
+    expectedReleases: Record<string, number> = { [rtx]: 1 },
+  ) {
+    const record = yield* Queue.take(records);
+    expect(yield* Queue.size(records)).toBe(0);
+    expect(releases).toEqual(expectedReleases);
+    return record;
+  });
+
+  return { start, exchanges, queued, gate, gates, available, snapshots, records, settledOnce };
+});
+
+const bodyText = (response: HttpServerResponse.HttpServerResponse) =>
+  (response.body._tag === "Stream" ? response.body.stream : Stream.empty).pipe(Stream.orDie);
+
+it.effect("a client leaving while queued settles once and never dispatches", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, queued, settledOnce } = yield* makeLifecycle();
+    const { disconnect } = yield* start();
+    yield* Queue.take(queued);
+    yield* disconnect;
+    expect((yield* settledOnce()).status).toBe("cancelled");
+    expect(yield* Queue.size(exchanges)).toBe(0);
+  }),
+);
+
+it.effect("a client leaving while upstream headers are pending aborts the upstream", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, gate, settledOnce } = yield* makeLifecycle();
+    yield* Deferred.succeed(gate, undefined);
+    const { disconnect } = yield* start();
+    const exchange = yield* Queue.take(exchanges);
+    yield* disconnect;
+    yield* Deferred.await(exchange.aborted);
+    expect((yield* settledOnce()).status).toBe("cancelled");
+  }),
+);
+
+it.effect("a client gone before the body is subscribed releases the lease and aborts", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, gate, settledOnce } = yield* makeLifecycle();
+    yield* Deferred.succeed(gate, undefined);
+    const { handler, requestScope } = yield* start();
+    const exchange = yield* Queue.take(exchanges);
+    yield* Deferred.succeed(exchange.reply, controlledBody().response);
+    expect((yield* Fiber.join(handler)).status).toBe(200);
+    // A destroyed response is never written: the server closes the scope without reading the body.
+    yield* Scope.close(requestScope, Exit.void);
+    yield* Deferred.await(exchange.aborted);
+    expect((yield* settledOnce()).status).toBe("cancelled");
+  }),
+);
+
+it.effect("a client leaving mid-stream aborts the upstream and settles once", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, gate, settledOnce } = yield* makeLifecycle();
+    yield* Deferred.succeed(gate, undefined);
+    const { handler, requestScope } = yield* start();
+    const exchange = yield* Queue.take(exchanges);
+    const upstream = controlledBody();
+    yield* Deferred.succeed(exchange.reply, upstream.response);
+    const response = yield* Fiber.join(handler);
+    const received = yield* Queue.unbounded<Uint8Array>();
+    const writer = yield* Stream.runForEach(bodyText(response), (chunk) =>
+      Queue.offer(received, chunk),
+    ).pipe(Effect.forkChild({ startImmediately: true }));
+    yield* upstream.push(`data: ${JSON.stringify({ choices: [{ delta: { content: "a" } }] })}\n\n`);
+    yield* Queue.take(received);
+    yield* Fiber.interrupt(writer);
+    yield* Scope.close(requestScope, Exit.void);
+    yield* Deferred.await(exchange.aborted);
+    const record = yield* settledOnce();
+    expect(record.status).toBe("cancelled");
+    expect(record.ttftMs).toBeTypeOf("number");
+  }),
+);
+
+it.effect("a client abort racing an upstream error records one terminal state", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, gate, settledOnce } = yield* makeLifecycle();
+    yield* Deferred.succeed(gate, undefined);
+    const { handler, requestScope } = yield* start();
+    const exchange = yield* Queue.take(exchanges);
+    const upstream = controlledBody();
+    yield* Deferred.succeed(exchange.reply, upstream.response);
+    const writer = yield* Stream.runDrain(bodyText(yield* Fiber.join(handler))).pipe(
+      Effect.forkChild({ startImmediately: true }),
+    );
+    yield* upstream.fail;
+    yield* Fiber.interrupt(writer);
+    yield* Scope.close(requestScope, Exit.void);
+    expect(["failed", "cancelled"]).toContain((yield* settledOnce()).status);
+  }),
+);
+
+it.effect("a client abort racing body completion records one terminal state", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, gate, settledOnce } = yield* makeLifecycle();
+    yield* Deferred.succeed(gate, undefined);
+    const { handler, requestScope } = yield* start();
+    const exchange = yield* Queue.take(exchanges);
+    const upstream = controlledBody();
+    yield* Deferred.succeed(exchange.reply, upstream.response);
+    const writer = yield* Stream.runDrain(bodyText(yield* Fiber.join(handler))).pipe(
+      Effect.forkChild({ startImmediately: true }),
+    );
+    yield* upstream.push(CHAT_STREAM);
+    yield* upstream.end;
+    yield* Fiber.interrupt(writer);
+    yield* Scope.close(requestScope, Exit.void);
+    expect(["completed", "cancelled"]).toContain((yield* settledOnce()).status);
+  }),
+);
+
+it.effect("a completed request settles once with its usage", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, gate, settledOnce } = yield* makeLifecycle();
+    yield* Deferred.succeed(gate, undefined);
+    const { handler, requestScope } = yield* start();
+    const exchange = yield* Queue.take(exchanges);
+    const upstream = controlledBody();
+    yield* Deferred.succeed(exchange.reply, upstream.response);
+    const writer = yield* Stream.runDrain(bodyText(yield* Fiber.join(handler))).pipe(
+      Effect.forkChild({ startImmediately: true }),
+    );
+    yield* upstream.push(CHAT_STREAM);
+    yield* upstream.end;
+    yield* Fiber.join(writer);
+    yield* Scope.close(requestScope, Exit.void);
+    expect(yield* settledOnce()).toMatchObject({
+      status: "completed",
+      promptTokens: 15,
+      cachedPromptTokens: 3,
+    });
+  }),
+);
+
+const chatResponse = () =>
+  new Response(CHAT_STREAM, { headers: { "content-type": "text/event-stream" } });
+
+it.effect("fails over to the fallback with its own URL and key when the primary refuses", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, gates, settledOnce } = yield* makeLifecycle({ fallback: true });
+    yield* Deferred.succeed(gates[rtx]!, undefined);
+    yield* Deferred.succeed(gates[spark]!, undefined);
+    const { serve } = yield* start();
+    const refused = yield* Queue.take(exchanges);
+    expect(refused.url).toBe("http://rtx.test/v1/chat/completions");
+    yield* Deferred.fail(refused.reply, connectionError("ECONNREFUSED"));
+    const fallback = yield* Queue.take(exchanges);
+    expect(fallback.url).toBe("http://spark1.test/v1/chat/completions");
+    expect(fallback.headers.authorization).toBe("Bearer spark-key");
+    expect((yield* serve(fallback, chatResponse())).status).toBe(200);
+    expect(yield* settledOnce({ [rtx]: 1, [spark]: 1 })).toMatchObject({
+      status: "completed",
+      serverId: spark,
+      fallbackFrom: rtx,
+    });
+  }),
+);
+
+it.effect("never replays a request that failed after it was dispatched", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, gates, settledOnce } = yield* makeLifecycle({ fallback: true });
+    yield* Deferred.succeed(gates[rtx]!, undefined);
+    const { handler } = yield* start();
+    yield* Deferred.fail((yield* Queue.take(exchanges)).reply, connectionError("ECONNRESET"));
+    expect((yield* Fiber.join(handler)).status).toBe(502);
+    expect(yield* settledOnce()).toMatchObject({ status: "failed", serverId: rtx });
+    expect(yield* Queue.size(exchanges)).toBe(0);
+  }),
+);
+
+it.effect("skips a primary the registry does not report ready", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, gates, settledOnce } = yield* makeLifecycle({
+      fallback: true,
+      snapshots: [snapshotOf(rtx, { status: "unreachable" }), snapshotOf(spark)],
+    });
+    yield* Deferred.succeed(gates[spark]!, undefined);
+    const { serve } = yield* start();
+    const exchange = yield* Queue.take(exchanges);
+    expect(exchange.url).toBe("http://spark1.test/v1/chat/completions");
+    yield* serve(exchange, chatResponse());
+    expect((yield* settledOnce({ [spark]: 1 })).fallbackFrom).toBe(rtx);
+  }),
+);
+
+it.effect("spills to the fallback once the primary wait bound passes and it can admit", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, queued, gates, settledOnce } = yield* makeLifecycle({
+      fallback: true,
+    });
+    yield* Deferred.succeed(gates[spark]!, undefined);
+    const { serve } = yield* start();
+    expect(yield* Queue.take(queued)).toBe(rtx);
+    yield* TestClock.adjust(InferenceRouting.PRIMARY_WAIT_MS - 1);
+    expect(yield* Queue.size(queued)).toBe(0);
+    yield* TestClock.adjust(1);
+    expect(yield* Queue.take(queued)).toBe(spark);
+    yield* serve(yield* Queue.take(exchanges), chatResponse());
+    expect(yield* settledOnce({ [rtx]: 1, [spark]: 1 })).toMatchObject({
+      serverId: spark,
+      fallbackFrom: rtx,
+    });
+  }),
+);
+
+it.effect("keeps waiting on the primary when the fallback cannot admit either", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, queued, gates, available, settledOnce } = yield* makeLifecycle({
+      fallback: true,
+    });
+    available[spark] = false;
+    const { serve } = yield* start();
+    yield* Queue.take(queued);
+    yield* TestClock.adjust(InferenceRouting.PRIMARY_WAIT_MS);
+    expect(yield* Queue.size(queued)).toBe(0);
+    yield* Deferred.succeed(gates[rtx]!, undefined);
+    const exchange = yield* Queue.take(exchanges);
+    expect(exchange.url).toBe("http://rtx.test/v1/chat/completions");
+    yield* serve(exchange, chatResponse());
+    expect((yield* settledOnce()).fallbackFrom).toBeNull();
+  }),
+);
+
+it.effect("pins a previous_response_id to the server that issued it, or refuses", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, gates, snapshots, records } = yield* makeLifecycle({
+      fallback: true,
+      snapshots: [snapshotOf(rtx, { status: "unreachable" }), snapshotOf(spark)],
+    });
+    yield* Deferred.succeed(gates[rtx]!, undefined);
+    yield* Deferred.succeed(gates[spark]!, undefined);
+    const json = (body: unknown) =>
+      new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+
+    const first = yield* start({ model: "m", input: "hi" }, "responses");
+    const issued = yield* Queue.take(exchanges);
+    expect(issued.url).toBe("http://spark1.test/v1/responses");
+    yield* first.serve(issued, json({ id: "resp_1", usage: { input_tokens: 3 } }));
+    yield* Queue.take(records);
+
+    snapshots.current = [snapshotOf(rtx), snapshotOf(spark, { status: "unreachable" })];
+    const pinned = yield* start(
+      { model: "m", input: "more", previous_response_id: "resp_1" },
+      "responses",
+    );
+    const refused = yield* Fiber.join(pinned.handler);
+    expect(refused.status).toBe(503);
+    expect(yield* Queue.size(exchanges)).toBe(0);
+    expect((yield* Queue.take(records)).status).toBe("rejected");
+  }),
+);
+
+it.effect("fingerprints only the static prefix, independent of key order", () =>
+  Effect.gen(function* () {
+    const { start, exchanges, gate, records } = yield* makeLifecycle();
+    yield* Deferred.succeed(gate, undefined);
+    const hashOf = Effect.fnUntraced(function* (body: unknown) {
+      const { serve } = yield* start(body);
+      yield* serve(yield* Queue.take(exchanges), chatResponse());
+      return (yield* Queue.take(records)).staticPrefixHash;
+    });
+    const system = { role: "system", content: "You are T3." };
+    const tool = { type: "function", function: { name: "read", parameters: {} } };
+    const first = yield* hashOf({
+      model: "m",
+      stream: true,
+      messages: [system, { role: "user", content: "one" }],
+      tools: [tool],
+    });
+    expect(first).toMatch(/^[0-9a-f]{16}$/);
+    expect(
+      yield* hashOf({
+        tools: [{ function: { parameters: {}, name: "read" }, type: "function" }],
+        messages: [system, { role: "user", content: "two" }, { role: "assistant", content: "x" }],
+        stream: true,
+        model: "m",
+      }),
+    ).toBe(first);
+    expect(
+      yield* hashOf({ model: "m", stream: true, messages: [system], tools: [tool, tool] }),
+    ).not.toBe(first);
   }),
 );

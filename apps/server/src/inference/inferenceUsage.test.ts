@@ -21,6 +21,7 @@ function meter(api: InferenceApi, streaming: boolean, text: string, size = 7) {
   const finished = usage.finished();
   return {
     usage: usage.finish(),
+    responseId: usage.responseId(),
     firstContentAt,
     finished,
     chunks: Math.ceil(bytes.length / size),
@@ -52,11 +53,12 @@ describe("makeUsageMeter", () => {
 
   it("reads OpenAI Responses usage from response.completed", () => {
     const text = sse([
-      { type: "response.created", response: {} },
+      { type: "response.created", response: { id: "resp_1" } },
       { type: "response.output_text.delta", delta: "Hi" },
       {
         type: "response.completed",
         response: {
+          id: "resp_1",
           usage: {
             input_tokens: 30,
             output_tokens: 5,
@@ -68,6 +70,8 @@ describe("makeUsageMeter", () => {
     const result = meter("responses", true, text);
     expect(result.usage).toEqual({ promptTokens: 30, cachedPromptTokens: 10, completionTokens: 5 });
     expect(result.firstContentAt).toBeDefined();
+    expect(result.responseId).toBe("resp_1");
+    expect(meter("responses", false, JSON.stringify({ id: "resp_2" })).responseId).toBe("resp_2");
   });
 
   it("totals Anthropic message_start input with cache reads and takes output from message_delta", () => {

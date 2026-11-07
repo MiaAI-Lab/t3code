@@ -14,6 +14,8 @@ export interface UsageMeter {
   /** Whether a stream reached its protocol's terminal event; clients may disconnect right after it. */
   readonly finished: () => boolean;
   readonly finish: () => InferenceUsage;
+  /** The upstream's id for a Responses API response, which later requests may reference. */
+  readonly responseId: () => string | undefined;
 }
 
 // Accounting never holds more than this per SSE line or per non-streaming body.
@@ -51,6 +53,12 @@ interface Tally {
   cached?: number;
   completion?: number;
   terminal?: boolean;
+  responseId?: string;
+}
+
+function readResponseId(response: unknown, tally: Tally) {
+  const id = field(response, "id");
+  if (typeof id === "string" && id !== "") tally.responseId = id;
 }
 
 /** OpenAI chat and legacy completions. */
@@ -110,6 +118,9 @@ function readEvent(api: InferenceApi, event: unknown, tally: Tally): boolean {
     }
     case "responses": {
       const type = typeof event.type === "string" ? event.type : "";
+      if (type === "response.created" || type === "response.completed") {
+        readResponseId(event.response, tally);
+      }
       if (
         type === "response.completed" ||
         type === "response.incomplete" ||
@@ -136,8 +147,10 @@ function readEvent(api: InferenceApi, event: unknown, tally: Tally): boolean {
 
 function readBody(api: InferenceApi, body: unknown, tally: Tally) {
   const usage = field(body, "usage");
-  if (api === "responses") readResponsesUsage(usage, tally);
-  else if (api === "messages") readAnthropicUsage(usage, tally);
+  if (api === "responses") {
+    readResponsesUsage(usage, tally);
+    readResponseId(body, tally);
+  } else if (api === "messages") readAnthropicUsage(usage, tally);
   else readOpenAiUsage(usage, tally);
 }
 
@@ -216,5 +229,10 @@ export function makeUsageMeter(api: InferenceApi, streaming: boolean): UsageMete
     };
   };
 
-  return { push, finished: () => tally.terminal === true, finish };
+  return {
+    push,
+    finished: () => tally.terminal === true,
+    finish,
+    responseId: () => tally.responseId,
+  };
 }

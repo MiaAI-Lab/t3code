@@ -32,8 +32,14 @@ export const InferenceRequestRecord = Schema.Struct({
   model: Schema.String,
   threadId: Schema.NullOr(ThreadId),
   runId: Schema.NullOr(RunId),
+  /** The run that delegated this request's thread, when the thread is a delegated child. */
+  parentRunId: Schema.NullOr(RunId),
   purpose: InferenceRequestPurpose,
   status: InferenceRequestStatus,
+  /** Set when another server served the request its credential's server could not take. */
+  fallbackFrom: Schema.NullOr(InferenceServerId),
+  /** Short hash of the request's static prefix (system text and tools); never the text itself. */
+  staticPrefixHash: Schema.NullOr(Schema.String),
   receivedAt: Schema.Number,
   queueWaitMs: Schema.NullOr(Schema.Number),
   ttftMs: Schema.NullOr(Schema.Number),
@@ -71,8 +77,11 @@ const Row = Schema.Struct({
   model: Schema.String,
   thread_id: Schema.NullOr(ThreadId),
   run_id: Schema.NullOr(RunId),
+  parent_run_id: Schema.NullOr(RunId),
   purpose: InferenceRequestPurpose,
   status: InferenceRequestStatus,
+  fallback_from: Schema.NullOr(InferenceServerId),
+  static_prefix_hash: Schema.NullOr(Schema.String),
   received_at: Schema.Number,
   queue_wait_ms: Schema.NullOr(Schema.Number),
   ttft_ms: Schema.NullOr(Schema.Number),
@@ -90,8 +99,11 @@ const fromRow = (row: typeof Row.Type): InferenceRequestRecord => ({
   model: row.model,
   threadId: row.thread_id,
   runId: row.run_id,
+  parentRunId: row.parent_run_id,
   purpose: row.purpose,
   status: row.status,
+  fallbackFrom: row.fallback_from,
+  staticPrefixHash: row.static_prefix_hash,
   receivedAt: row.received_at,
   queueWaitMs: row.queue_wait_ms,
   ttftMs: row.ttft_ms,
@@ -142,6 +154,11 @@ function aggregate(
         .length,
       promptTokens: sum(group.map((record) => record.promptTokens)),
       cachedPromptTokens: sum(group.map((record) => record.cachedPromptTokens)),
+      promptTokensWithCacheData: sum(
+        group
+          .filter((record) => record.cachedPromptTokens !== null)
+          .map((record) => record.promptTokens),
+      ),
       completionTokens: sum(group.map((record) => record.completionTokens)),
       queueWaitMs: distribution(group.map((record) => record.queueWaitMs)),
       ttftMs: distribution(group.map((record) => record.ttftMs)),
@@ -176,8 +193,11 @@ const make = Effect.gen(function* () {
         model: entry.model,
         thread_id: entry.threadId,
         run_id: entry.runId,
+        parent_run_id: entry.parentRunId,
         purpose: entry.purpose,
         status: entry.status,
+        fallback_from: entry.fallbackFrom,
+        static_prefix_hash: entry.staticPrefixHash,
         received_at: entry.receivedAt,
         queue_wait_ms: entry.queueWaitMs,
         ttft_ms: entry.ttftMs,
@@ -216,7 +236,7 @@ const make = Effect.gen(function* () {
       SELECT * FROM inference_requests
       WHERE thread_id = ${threadId} AND status = 'completed'
       ORDER BY received_at DESC
-      LIMIT 1
+      LIMIT 2
     `.pipe(
       Effect.flatMap(decodeRows),
       Effect.catchCause((cause) =>
@@ -225,9 +245,10 @@ const make = Effect.gen(function* () {
         ),
       ),
     );
-    const row = rows[0];
+    const [row, previousRow] = rows;
     if (row === undefined) return null;
     const latest = fromRow(row);
+    const previous = previousRow === undefined ? undefined : fromRow(previousRow);
     return {
       serverId: latest.serverId,
       model: latest.model,
@@ -238,6 +259,11 @@ const make = Effect.gen(function* () {
       queueWaitMs: latest.queueWaitMs,
       ttftMs: latest.ttftMs,
       decodeTokensPerSecond: decodeSpeed(latest),
+      ...(latest.fallbackFrom === null ? {} : { fallbackFrom: latest.fallbackFrom }),
+      ...(previous === undefined ? {} : { serverChanged: previous.serverId !== latest.serverId }),
+      ...(previous?.staticPrefixHash == null || latest.staticPrefixHash === null
+        ? {}
+        : { staticPrefixChanged: previous.staticPrefixHash !== latest.staticPrefixHash }),
     } satisfies InferenceThreadLastRequest;
   });
 

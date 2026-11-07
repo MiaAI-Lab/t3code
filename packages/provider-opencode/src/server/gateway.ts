@@ -89,6 +89,8 @@ export interface OpenCodeGatewaySource {
   readonly forProcess: (
     environment: NodeJS.ProcessEnv,
   ) => Effect.Effect<NodeJS.ProcessEnv, never, Scope.Scope>;
+  /** Changes when the managed server or its models do, so an idle shared process is restarted. */
+  readonly processKey: Effect.Effect<string>;
   /** A process serving one thread uses the credential minted with that thread's MCP session. */
   readonly forSession: (
     environment: NodeJS.ProcessEnv,
@@ -99,6 +101,7 @@ export interface OpenCodeGatewaySource {
 export const unmanagedOpenCodeGatewaySource: OpenCodeGatewaySource = {
   resolution: Effect.undefined,
   forProcess: Effect.succeed,
+  processKey: Effect.succeed(""),
   forSession: Effect.succeed,
 };
 
@@ -111,6 +114,9 @@ export const makeOpenCodeGatewaySource = Effect.fn("makeOpenCodeGatewaySource")(
   const gateway = access.value;
   return {
     resolution: gateway.resolve(instanceId, "chat-completions"),
+    processKey: gateway
+      .resolve(instanceId, "chat-completions")
+      .pipe(Effect.map((resolution) => JSON.stringify(resolution ?? null))),
     forProcess: (environment) =>
       gateway
         .instanceCredential(instanceId, "chat-completions")

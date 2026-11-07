@@ -98,6 +98,38 @@ it.effect("shares concurrent borrowers and closes after the idle TTL", () =>
   }).pipe(Effect.provide(TestClock.layer())),
 );
 
+// A linked inference server can become ready, or change, after the shared process started.
+it.effect("replaces an idle process whose environment key changed, but not a borrowed one", () =>
+  Effect.gen(function* () {
+    const testRuntime = yield* makeRuntime;
+    const key = yield* Ref.make("unmanaged");
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        const owner = yield* OpenCodeServerOwner.make({
+          binaryPath: "opencode",
+          directory: "/project",
+          environmentKey: Ref.get(key),
+        });
+        const url = owner.withServer((server) => Effect.succeed(server.url));
+        expect(yield* url).toBe("http://127.0.0.1:1");
+        expect(yield* url).toBe("http://127.0.0.1:1");
+        yield* Ref.set(key, "managed:rtx");
+        const borrowed = yield* owner.withServer((server) =>
+          Effect.gen(function* () {
+            expect(server.url).toBe("http://127.0.0.1:2");
+            yield* Ref.set(key, "managed:spark1");
+            return yield* url;
+          }),
+        );
+        expect(borrowed).toBe("http://127.0.0.1:2");
+        expect(yield* url).toBe("http://127.0.0.1:3");
+      }),
+    ).pipe(Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, testRuntime.runtime));
+    expect(yield* Ref.get(testRuntime.starts)).toBe(3);
+    expect(yield* Ref.get(testRuntime.closes)).toBe(3);
+  }).pipe(Effect.provide(TestClock.layer())),
+);
+
 it.effect("retries a failed start and closes on owner scope shutdown", () =>
   Effect.gen(function* () {
     const testRuntime = yield* makeRuntime;

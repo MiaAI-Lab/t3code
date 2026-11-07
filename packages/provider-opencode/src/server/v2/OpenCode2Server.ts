@@ -116,6 +116,7 @@ export const make = Effect.fn("OpenCode2Server.make")(function* (input: {
   readonly directory: string;
   readonly environment: NodeJS.ProcessEnv;
   readonly prepareEnvironment?: OpenCodeServerOwner.PrepareEnvironment;
+  readonly environmentKey?: Effect.Effect<string>;
 }) {
   const opencode = yield* OpenCode2Client.OpenCode2Client;
   const connectTo = Effect.fn("OpenCode2Server.connectTo")(function* (
@@ -156,6 +157,7 @@ export const make = Effect.fn("OpenCode2Server.make")(function* (input: {
     ...(input.prepareEnvironment === undefined
       ? {}
       : { prepareEnvironment: input.prepareEnvironment }),
+    ...(input.environmentKey === undefined ? {} : { environmentKey: input.environmentKey }),
     verify: (url) => connectTo(url, password, false).pipe(Effect.flatMap(remember)),
   });
   return OpenCode2Server.of({

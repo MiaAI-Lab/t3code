@@ -288,6 +288,7 @@ export const OpenCodeDriver: ProviderDriver<
       directory: host.paths.cwd,
       environment: processEnv,
       prepareEnvironment: gateway.forProcess,
+      environmentKey: gateway.processKey,
     }).pipe(
       Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime),
       Effect.provideService(
@@ -344,6 +345,7 @@ export const OpenCodeDriver: ProviderDriver<
       ...(effectiveConfig.serverPassword ? { serverPassword: effectiveConfig.serverPassword } : {}),
       environment: processEnv,
       prepareEnvironment: gateway.forProcess,
+      environmentKey: gateway.processKey,
     });
     const textGeneration = selectOpenCodeRuntimeTextGeneration(
       runtimeProbe,

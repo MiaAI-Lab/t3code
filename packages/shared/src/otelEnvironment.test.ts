@@ -387,17 +387,21 @@ describe("OtelEnvironment", () => {
 });
 
 describe("isRelayTracingEnabled", () => {
-  it("defaults on and respects the T3CODE SDK override of the standard kill switch", () => {
-    assert.isTrue(OtelEnvironment.isRelayTracingEnabled({}));
-    assert.isFalse(OtelEnvironment.isRelayTracingEnabled({ OTEL_SDK_DISABLED: "true" }));
+  it("needs the telemetry opt-in and respects the T3CODE SDK override of the standard kill switch", () => {
+    const optIn = { T3CODE_TELEMETRY_ENABLED: "true" };
+    assert.isFalse(OtelEnvironment.isRelayTracingEnabled({}));
+    assert.isTrue(OtelEnvironment.isRelayTracingEnabled(optIn));
+    assert.isFalse(OtelEnvironment.isRelayTracingEnabled({ ...optIn, OTEL_SDK_DISABLED: "true" }));
     assert.isTrue(
       OtelEnvironment.isRelayTracingEnabled({
+        ...optIn,
         OTEL_SDK_DISABLED: "true",
         T3CODE_OTEL_SDK_DISABLED: "false",
       }),
     );
     assert.isFalse(
       OtelEnvironment.isRelayTracingEnabled({
+        ...optIn,
         OTEL_SDK_DISABLED: "false",
         T3CODE_OTEL_SDK_DISABLED: "true",
       }),

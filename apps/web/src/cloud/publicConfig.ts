@@ -62,8 +62,9 @@ export function resolveCloudPublicConfig(): CloudPublicConfig {
 }
 
 export function resolveRelayTracingConfig() {
-  // The relay exporter is created during module initialization, so this must be synchronous.
-  if (typeof window !== "undefined" && window.desktopBridge?.getRelayTelemetryEnabled() === false) {
+  // The relay exporter is created during module initialization, so this must be synchronous. Only
+  // the desktop app can read the host's telemetry opt-in; a plain browser has none, so it stays off.
+  if (typeof window === "undefined" || window.desktopBridge?.getRelayTelemetryEnabled() !== true) {
     return null;
   }
   const { relayTracing } = resolveCloudPublicConfig();

@@ -102,6 +102,15 @@ export function applyServerConfigProjection(
         config: {
           ...projection.config,
           providers: reuseUnchanged(projection.config.providers, event.payload.providers),
+          // Servers without inference servers omit the field; keep what the snapshot said.
+          ...(event.payload.inferenceServers === undefined
+            ? {}
+            : {
+                inferenceServers: reuseUnchanged(
+                  projection.config.inferenceServers,
+                  event.payload.inferenceServers,
+                ),
+              }),
         },
         latestEvent: event,
         source: "live",

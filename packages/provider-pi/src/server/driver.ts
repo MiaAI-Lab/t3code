@@ -12,6 +12,7 @@ import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderL
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { piUsageReader } from "./usage.ts";
 import { makePiTextGeneration } from "./textGeneration.ts";
+import { makePiGatewaySource } from "./gateway.ts";
 import { PiAdapterV2Driver, type PiAdapterV2DriverEnv } from "./adapter.ts";
 import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
 import {
@@ -138,9 +139,15 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
           }),
       ),
     );
-    const textGeneration = yield* makePiTextGeneration(effectiveConfig, processEnv);
+    const gatewaySource = yield* makePiGatewaySource(instanceId, host.paths.providerStatusCacheDir);
+    const textGeneration = yield* makePiTextGeneration(effectiveConfig, processEnv, gatewaySource);
 
-    const checkProvider = checkPiProviderStatus(effectiveConfig, processEnv, cwd).pipe(
+    const checkProvider = checkPiProviderStatus(
+      effectiveConfig,
+      processEnv,
+      cwd,
+      gatewaySource,
+    ).pipe(
       Effect.map(stampIdentity),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
     );

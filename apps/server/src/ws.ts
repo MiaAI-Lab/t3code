@@ -276,6 +276,7 @@ import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import * as AgentSessionImporter from "./project/AgentSessionImporter.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as InferenceServerRegistry from "./inference/InferenceServerRegistry.ts";
+import * as InferenceRequests from "./persistence/InferenceRequests.ts";
 import { requestUrl } from "./requestUrl.ts";
 
 const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
@@ -1479,6 +1480,7 @@ export const layerWsRpc = (
       const usage = yield* UsageService.UsageService;
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
       const inferenceServers = yield* InferenceServerRegistry.InferenceServerRegistry;
+      const inferenceRequests = yield* InferenceRequests.InferenceRequestLog;
       const worktreeSetupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
       const projectCloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
       const repositoryIdentityResolver =
@@ -2480,14 +2482,9 @@ export const layerWsRpc = (
               }),
             ),
           ),
-        // Replaced by the inference gateway's request log.
-        [WS_METHODS.serverGetInferenceUsage]: (input) =>
-          Effect.succeed({
-            window: input.window,
-            generatedAt: "1970-01-01T00:00:00.000Z",
-            rows: [],
-          }),
-        [WS_METHODS.serverGetThreadInferenceRequest]: () => Effect.succeed({ last: null }),
+        [WS_METHODS.serverGetInferenceUsage]: (input) => inferenceRequests.summarize(input.window),
+        [WS_METHODS.serverGetThreadInferenceRequest]: (input) =>
+          inferenceRequests.latestForThread(input.threadId).pipe(Effect.map((last) => ({ last }))),
         [WS_METHODS.serverRefreshInferenceServers]: (input) =>
           inferenceServers
             .refresh(input.id)

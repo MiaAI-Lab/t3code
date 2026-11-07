@@ -1,0 +1,139 @@
+import { expect, it } from "@effect/vitest";
+import { InferenceServerId, RunId, ThreadId } from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/sql/SqlClient";
+import * as TestClock from "effect/testing/TestClock";
+
+import * as InferenceRequests from "./InferenceRequests.ts";
+import * as Sqlite from "./Sqlite.ts";
+
+const rtx = InferenceServerId.make("rtx");
+const thread = ThreadId.make("thread-1");
+const HOUR = 60 * 60 * 1_000;
+const DAY = 24 * HOUR;
+
+const layer = InferenceRequests.layer.pipe(Layer.provideMerge(Sqlite.layerMemory));
+
+const row = (
+  index: number,
+  overrides: Partial<InferenceRequests.InferenceRequestRecord> = {},
+): InferenceRequests.InferenceRequestRecord => ({
+  requestId: `request-${index}`,
+  serverId: rtx,
+  model: "GLM-5.3-Flash",
+  threadId: thread,
+  runId: RunId.make("run-1"),
+  purpose: "interactive",
+  status: "completed",
+  receivedAt: 0,
+  queueWaitMs: null,
+  ttftMs: null,
+  decodeMs: null,
+  durationMs: null,
+  promptTokens: null,
+  cachedPromptTokens: null,
+  completionTokens: null,
+  ...overrides,
+});
+
+it.effect("aggregates by server, model, and purpose, excluding missing measurements", () =>
+  Effect.gen(function* () {
+    const log = yield* InferenceRequests.InferenceRequestLog;
+    yield* TestClock.adjust(10 * DAY);
+    const now = 10 * DAY;
+    yield* log.record(
+      row(1, {
+        receivedAt: now - HOUR,
+        queueWaitMs: 10,
+        ttftMs: 100,
+        decodeMs: 1_000,
+        durationMs: 1_200,
+        promptTokens: 50,
+        cachedPromptTokens: 40,
+        completionTokens: 20,
+      }),
+    );
+    yield* log.record(
+      row(2, {
+        receivedAt: now - 2 * HOUR,
+        queueWaitMs: 30,
+        ttftMs: 300,
+        decodeMs: 2_000,
+        promptTokens: 10,
+        completionTokens: 10,
+      }),
+    );
+    yield* log.record(row(3, { receivedAt: now - 3 * HOUR, status: "failed", queueWaitMs: 20 }));
+    yield* log.record(row(4, { receivedAt: now - 2 * DAY, purpose: "background", ttftMs: 5 }));
+    yield* log.record(row(5, { receivedAt: now - 8 * DAY }));
+
+    const day = yield* log.summarize("24h");
+    expect(day.window).toBe("24h");
+    expect(day.rows).toEqual([
+      {
+        serverId: rtx,
+        model: "GLM-5.3-Flash",
+        purpose: "interactive",
+        requests: 3,
+        failed: 1,
+        promptTokens: 60,
+        cachedPromptTokens: 40,
+        completionTokens: 30,
+        queueWaitMs: { n: 3, p50: 20, p95: 30 },
+        ttftMs: { n: 2, p50: 100, p95: 300 },
+        decodeTokensPerSecond: { n: 2, p50: 5, p95: 20 },
+      },
+    ]);
+    const week = yield* log.summarize("7d");
+    expect(week.rows.map((entry) => [entry.purpose, entry.requests])).toEqual([
+      ["background", 1],
+      ["interactive", 3],
+    ]);
+    expect(week.rows[0]?.ttftMs).toEqual({ n: 1, p50: 5, p95: 5 });
+    expect(week.rows[0]?.queueWaitMs).toEqual({ n: 0, p50: null, p95: null });
+  }).pipe(Effect.provide(layer)),
+);
+
+it.effect("returns a thread's latest completed request", () =>
+  Effect.gen(function* () {
+    const log = yield* InferenceRequests.InferenceRequestLog;
+    expect(yield* log.latestForThread(thread)).toBeNull();
+    yield* log.record(
+      row(1, {
+        receivedAt: 1_000,
+        durationMs: 500,
+        promptTokens: 7,
+        ttftMs: 40,
+        decodeMs: 200,
+        completionTokens: 4,
+      }),
+    );
+    yield* log.record(row(2, { receivedAt: 2_000, status: "failed" }));
+    expect(yield* log.latestForThread(thread)).toEqual({
+      serverId: rtx,
+      model: "GLM-5.3-Flash",
+      completedAt: "1970-01-01T00:00:01.500Z",
+      promptTokens: 7,
+      cachedPromptTokens: null,
+      completionTokens: 4,
+      queueWaitMs: null,
+      ttftMs: 40,
+      decodeTokensPerSecond: 20,
+    });
+  }).pipe(Effect.provide(layer)),
+);
+
+it.effect("prunes records past the retention window when it records", () =>
+  Effect.gen(function* () {
+    const log = yield* InferenceRequests.InferenceRequestLog;
+    const sql = yield* SqlClient.SqlClient;
+    yield* log.record(row(1, { receivedAt: 0 }));
+    yield* TestClock.adjust(InferenceRequests.RETENTION_MS + DAY);
+    yield* log.record(row(2, { receivedAt: InferenceRequests.RETENTION_MS + DAY }));
+    const ids = yield* sql<{ readonly request_id: string }>`
+      SELECT request_id FROM inference_requests ORDER BY request_id
+    `;
+    expect(ids.map((entry) => entry.request_id)).toEqual(["request-2"]);
+  }).pipe(Effect.provide(layer)),
+);

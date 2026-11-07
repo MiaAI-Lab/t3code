@@ -10,6 +10,7 @@ import type { PiSettings } from "../settings.ts";
 
 import { makePiRpcConnection, parsePiModelSlug, piRecordString } from "./rpc.ts";
 import { buildPiRpcLaunch, resolvePiLaunchArgs } from "./mcpInjection.ts";
+import { type PiGatewaySource, unmanagedPiGatewaySource } from "./gateway.ts";
 import * as TextGenerationOperations from "@t3tools/provider-core/server/textGenerationOperations";
 
 const PI_TIMEOUT_MS = 180_000;
@@ -28,6 +29,7 @@ const piTurnErrorDetail = (errorMessage: string | undefined) => {
 export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* (
   piSettings: PiSettings,
   environment: NodeJS.ProcessEnv = process.env,
+  gatewaySource: PiGatewaySource = unmanagedPiGatewaySource,
 ) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
@@ -42,11 +44,15 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
           detail: resolvedLaunchArgs.message,
         });
       }
+      // Only T3's gateway-only extension loads; user extensions stay off.
+      const gateway = yield* gatewaySource.forBackground;
       const launch = buildPiRpcLaunch({
         launchArgs: resolvedLaunchArgs.args,
         environment,
         mcpSession: undefined,
         extensionPath: undefined,
+        gateway,
+        gatewayExtensionPath: gateway?.extensionPath,
         ephemeral: true,
         shortLived: true,
         disableExtensions: true,

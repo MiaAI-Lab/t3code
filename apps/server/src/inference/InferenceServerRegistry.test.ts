@@ -125,6 +125,11 @@ describe("InferenceServerRegistry probes", () => {
           },
           [`${HOST}/metrics`]:
             "# HELP tensorfold:requests_running Running\ntensorfold:requests_running 1\ntensorfold:requests_waiting 0\n",
+          // Routes that exist reject an empty body; missing ones answer 404.
+          [`${HOST}/v1/chat/completions`]: { statusCode: 400 },
+          [`${HOST}/v1/responses`]: { statusCode: 422 },
+          [`${HOST}/v1/messages`]: { statusCode: 400 },
+          [`${HOST}/v1/completions`]: { statusCode: 500 },
         },
         { apiKey: "secret-key", displayName: "rtx" },
         seen,
@@ -145,6 +150,7 @@ describe("InferenceServerRegistry probes", () => {
         ],
         load: { running: 1, waiting: 0 },
         maxConcurrentRequests: 4,
+        apiProtocols: ["chat-completions", "responses", "messages"],
       });
       expect(snapshot?.checkedAt).toBeTypeOf("string");
       expect(seen.every(({ auth }) => auth === "Bearer secret-key")).toBe(true);
@@ -182,6 +188,7 @@ describe("InferenceServerRegistry probes", () => {
         load: { running: 2, waiting: 3 },
       });
       expect(snapshot?.maxConcurrentRequests).toBeUndefined();
+      expect(snapshot?.apiProtocols).toBeUndefined();
     }),
   );
 
@@ -363,6 +370,38 @@ const layerLiveSettings = Layer.effect(
 ).pipe(Layer.provide(ServerSettings.layerTest()));
 
 describe("InferenceServerRegistry lifecycle", () => {
+  it.effect("carries the gateway queue on the snapshot until it drains, across probes", () =>
+    Effect.gen(function* () {
+      const settings = yield* ServerSettings.ServerSettingsService;
+      const registry = yield* InferenceServerRegistry.make;
+      yield* settings.updateSettings({
+        inferenceServers: { [rtx]: { baseUrl: `${HOST}/v1`, apiKey: "", enabled: true } },
+      });
+      yield* registry.refresh();
+      const queue = {
+        capacity: 1,
+        active: [{ purpose: "background" as const }],
+        waiting: [{ purpose: "interactive" as const, position: 1 }],
+      };
+      yield* registry.publishGatewayQueue(rtx, queue);
+      expect((yield* registry.current)[0]?.gatewayQueue).toEqual(queue);
+      yield* registry.refresh(rtx);
+      expect((yield* registry.current)[0]?.gatewayQueue).toEqual(queue);
+      yield* registry.publishGatewayQueue(rtx, { capacity: 1, active: [], waiting: [] });
+      expect((yield* registry.current)[0]?.gatewayQueue).toBeUndefined();
+    }).pipe(
+      Effect.provide([
+        layerLiveSettings,
+        Layer.mock(BackgroundPolicy.BackgroundPolicy)({
+          shouldRunScopeWork: () => Effect.succeed(false),
+        }),
+        Layer.mock(SecretResolver.SecretResolver)({}),
+        layerFakeHttp({ [`${HOST}/v1/models`]: tensorFoldModels }, []),
+      ]),
+      Effect.scoped,
+    ),
+  );
+
   it.effect("probes a server added in settings and drops a removed one", () =>
     Effect.gen(function* () {
       const settings = yield* ServerSettings.ServerSettingsService;

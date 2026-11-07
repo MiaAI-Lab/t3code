@@ -437,6 +437,20 @@ export const layerWithOptions = (
       const isMcpCredentialReserved = (threadId: ThreadId, mcpCredentialId: string) =>
         (mcpCredentialReservations.get(mcpReservationKey(threadId, mcpCredentialId)) ?? 0) > 0;
       const mcpPrepareLock = yield* KeyedLock.make<ThreadId>();
+      /** The enabled inference server this instance is linked to; its sessions get a gateway credential. */
+      const linkedInferenceServer = (providerInstanceId: ProviderInstanceId) =>
+        Option.isNone(serverSettings)
+          ? Effect.undefined
+          : serverSettings.value.getSettings.pipe(
+              Effect.map((settings) => {
+                const serverId = settings.providerInstances[providerInstanceId]?.inferenceServerId;
+                return serverId !== undefined &&
+                  settings.inferenceServers[serverId]?.enabled === true
+                  ? serverId
+                  : undefined;
+              }),
+              Effect.orElseSucceed(() => undefined),
+            );
       /** Serialize prepares per thread so concurrent rotations cannot revoke each other's credentials. */
       const prepareMcpSession = (
         threadId: ThreadId,
@@ -461,6 +475,7 @@ export const layerWithOptions = (
                   Effect.map((thread) => thread.lineage.relationshipToParent === "subagent"),
                   Effect.orElseSucceed(() => false),
                 );
+                const inferenceServerId = yield* linkedInferenceServer(providerInstanceId);
                 const existing = yield* mcpSessions.read(threadId);
                 if (existing !== undefined) {
                   // Reserve before async validation so release cannot revoke between validation and reservation.
@@ -483,7 +498,8 @@ export const layerWithOptions = (
                     resolved.capabilities.has("preview") === browserToolsAvailable &&
                     resolved.capabilities.has("device") === deviceToolsAvailable &&
                     // A credential issued while the lineage read failed is replaced once it works.
-                    (resolved.thread.subagent === true) === subagent
+                    (resolved.thread.subagent === true) === subagent &&
+                    existing.inferenceGateway?.serverId === inferenceServerId
                   ) {
                     return { mcpCredentialId: existing.providerSessionId, issued: false };
                   }
@@ -496,6 +512,7 @@ export const layerWithOptions = (
                   browserToolsAvailable,
                   capabilities,
                   subagent,
+                  ...(inferenceServerId === undefined ? {} : { inferenceServerId }),
                 });
                 yield* mcpSessions.set(credential.config);
                 reserveMcpCredential(threadId, credential.config.providerSessionId);

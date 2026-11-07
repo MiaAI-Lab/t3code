@@ -2,6 +2,12 @@ import { assert, describe, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 
 import {
+  T3_GATEWAY_MODELS_ENV,
+  T3_GATEWAY_PROVIDER_ENV,
+  T3_GATEWAY_TOKEN_ENV,
+  T3_GATEWAY_URL_ENV,
+} from "./gatewayExtensionSource.ts";
+import {
   T3_MCP_BEARER_ENV,
   T3_MCP_URL_ENV,
   T3_PI_RUNTIME_MODE_ENV,
@@ -20,6 +26,108 @@ const mcpSession = {
   authorizationHeader: "Bearer secret-pi-token",
   browserToolsAvailable: true,
 };
+
+const gateway = {
+  server: {
+    serverId: "rtx",
+    displayName: "rtx",
+    models: [
+      {
+        id: "GLM-5.3-Flash",
+        contextWindow: 813056,
+        reasoningEfforts: ["max", "high", "low"],
+      },
+      { id: "plain" },
+    ],
+  },
+  credential: {
+    serverId: "rtx",
+    baseUrl: "http://127.0.0.1:43123/inference/rtx/v1",
+    token: "gateway-secret",
+  },
+};
+
+describe("pi T3 gateway provider", () => {
+  it("hands a managed server's gateway to Pi through the environment only", () => {
+    const launch = buildPiRpcLaunch({
+      launchArgs: [],
+      environment: {},
+      mcpSession,
+      extensionPath: "/tmp/cache/pi-t3-mcp-extension.ts",
+      gateway,
+    });
+    assert.notInclude(launch.args.join(" "), "gateway-secret");
+    assert.equal(launch.env[T3_GATEWAY_URL_ENV], "http://127.0.0.1:43123/inference/rtx/v1");
+    assert.equal(launch.env[T3_GATEWAY_TOKEN_ENV], "gateway-secret");
+    assert.equal(launch.env[T3_GATEWAY_PROVIDER_ENV], "t3-rtx");
+    assert.deepEqual(JSON.parse(launch.env[T3_GATEWAY_MODELS_ENV]!), [
+      {
+        id: "GLM-5.3-Flash",
+        name: "GLM-5.3-Flash (rtx)",
+        reasoning: true,
+        thinkingLevelMap: {
+          minimal: null,
+          low: "low",
+          medium: null,
+          high: "high",
+          xhigh: null,
+          max: "max",
+        },
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 813056,
+        maxTokens: 16384,
+      },
+      {
+        id: "plain",
+        name: "plain (rtx)",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128000,
+        maxTokens: 16384,
+      },
+    ]);
+  });
+
+  it("loads only the gateway extension for background processes and drops stale credentials", () => {
+    const launch = buildPiRpcLaunch({
+      launchArgs: ["--extension", "/home/user/.pi/agent/extensions/demo.ts"],
+      environment: { [T3_GATEWAY_TOKEN_ENV]: "inherited" },
+      mcpSession: undefined,
+      extensionPath: undefined,
+      gatewayExtensionPath: "/tmp/cache/pi-t3-gateway-extension.ts",
+      gateway,
+      ephemeral: true,
+      shortLived: true,
+      disableExtensions: true,
+      disableTools: true,
+    });
+    assert.deepEqual(launch.args, [
+      "--mode",
+      "rpc",
+      "--no-session",
+      "--offline",
+      "--no-extensions",
+      "--no-tools",
+      "--extension",
+      "/tmp/cache/pi-t3-gateway-extension.ts",
+    ]);
+    assert.equal(launch.env[T3_GATEWAY_TOKEN_ENV], "gateway-secret");
+
+    const unmanaged = buildPiRpcLaunch({
+      launchArgs: [],
+      environment: { [T3_GATEWAY_TOKEN_ENV]: "inherited", [T3_GATEWAY_URL_ENV]: "http://x" },
+      mcpSession: undefined,
+      extensionPath: undefined,
+      gatewayExtensionPath: "/tmp/cache/pi-t3-gateway-extension.ts",
+      ephemeral: true,
+    });
+    assert.deepEqual(unmanaged.args, ["--mode", "rpc", "--no-session"]);
+    assert.isUndefined(unmanaged.env[T3_GATEWAY_TOKEN_ENV]);
+    assert.isUndefined(unmanaged.env[T3_GATEWAY_URL_ENV]);
+  });
+});
 
 describe("pi T3 MCP injection", () => {
   it("always adds the permission bridge and configures MCP when available", () => {

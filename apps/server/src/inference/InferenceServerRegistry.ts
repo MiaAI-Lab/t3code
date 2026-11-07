@@ -1,5 +1,7 @@
 import {
   DEFAULT_PROVIDER_HEALTH_REFRESH_INTERVAL,
+  type InferenceApiProtocol,
+  type InferenceGatewayQueue,
   type InferenceServerConfig,
   InferenceServerId,
   type InferenceServerLoad,
@@ -37,6 +39,11 @@ export class InferenceServerRegistry extends Context.Service<
     readonly refresh: (
       id?: InferenceServerId,
     ) => Effect.Effect<ReadonlyArray<InferenceServerSnapshot>>;
+    /** The gateway's view of its own requests to `id`, carried on that server's snapshot. */
+    readonly publishGatewayQueue: (
+      id: InferenceServerId,
+      queue: InferenceGatewayQueue,
+    ) => Effect.Effect<void>;
   }
 >()("t3/inference/InferenceServerRegistry") {}
 
@@ -47,7 +54,7 @@ type Endpoint =
   | { readonly base: string; readonly origin: string; readonly display: string }
   | { readonly error: string; readonly display: string };
 
-function parseBaseUrl(raw: string): Endpoint {
+export function parseBaseUrl(raw: string): Endpoint {
   let url: URL;
   try {
     url = new URL(raw);
@@ -176,6 +183,13 @@ export function servedContextWindowForModel(input: {
   return model.servedContextWindow === undefined ? {} : { window: model.servedContextWindow };
 }
 
+const PROTOCOL_PATHS: ReadonlyArray<readonly [InferenceApiProtocol, string]> = [
+  ["chat-completions", "chat/completions"],
+  ["completions", "completions"],
+  ["responses", "responses"],
+  ["messages", "messages"],
+];
+
 type Fetched =
   | { readonly _tag: "Response"; readonly status: number; readonly body: string }
   | { readonly _tag: "Unreachable"; readonly timedOut: boolean };
@@ -213,6 +227,31 @@ export const make = Effect.gen(function* () {
         result._tag === "Some" ? result.value : ({ _tag: "Unreachable", timedOut: true } as const),
       ),
       Effect.orElseSucceed(() => ({ _tag: "Unreachable", timedOut: false }) as const),
+    );
+  });
+
+  /**
+   * An empty POST costs no generation: a served route rejects it as invalid (400/422), a missing
+   * one answers 404/405. Anything else proves nothing either way.
+   */
+  const protocolServed = Effect.fn("InferenceServerRegistry.protocolServed")(function* (
+    url: string,
+    apiKey: string,
+  ) {
+    const request = HttpClientRequest.post(url).pipe(
+      HttpClientRequest.bodyText("{}", "application/json"),
+      apiKey === "" ? (request) => request : HttpClientRequest.bearerToken(apiKey),
+    );
+    return yield* client.execute(request).pipe(
+      Effect.map(
+        (response) =>
+          response.status === 400 ||
+          response.status === 422 ||
+          (response.status >= 200 && response.status < 300),
+      ),
+      Effect.timeoutOption(ENRICHMENT_TIMEOUT),
+      Effect.map((result) => result._tag === "Some" && result.value),
+      Effect.orElseSucceed(() => false),
     );
   });
 
@@ -301,7 +340,7 @@ export const make = Effect.gen(function* () {
     const ownerEngine = typeof owner === "string" ? ENGINE_BY_OWNER[owner] : undefined;
 
     // Optional: a failure here never downgrades the model list above.
-    const [health, metricsText, slots] = yield* Effect.all(
+    const [health, metricsText, slots, protocols] = yield* Effect.all(
       [
         ownerEngine === "TensorFold"
           ? enrichmentJson(`${endpoint.origin}/health`, key)
@@ -310,6 +349,14 @@ export const make = Effect.gen(function* () {
         ownerEngine === "llama.cpp"
           ? enrichmentJson(`${endpoint.origin}/slots`, key)
           : Effect.undefined,
+        Effect.forEach(
+          PROTOCOL_PATHS,
+          ([protocol, path]) =>
+            protocolServed(`${endpoint.base}/${path}`, key).pipe(
+              Effect.map((served) => (served ? [protocol] : [])),
+            ),
+          { concurrency: "unbounded" },
+        ).pipe(Effect.map((found) => found.flat())),
       ],
       { concurrency: "unbounded" },
     );
@@ -333,16 +380,44 @@ export const make = Effect.gen(function* () {
       ...(engine === undefined ? {} : { engine }),
       ...(metrics === undefined ? {} : { load: metrics.load }),
       ...(maxConcurrentRequests === undefined ? {} : { maxConcurrentRequests }),
+      ...(protocols.length === 0 ? {} : { apiProtocols: protocols }),
     } as const;
   });
 
+  const gatewayQueues = yield* Ref.make(new Map<InferenceServerId, InferenceGatewayQueue>());
+  const withGatewayQueues = (
+    snapshots: ReadonlyArray<InferenceServerSnapshot>,
+    queues: ReadonlyMap<InferenceServerId, InferenceGatewayQueue>,
+  ) =>
+    snapshots.map((snapshot) => {
+      const queue = queues.get(snapshot.id);
+      const { gatewayQueue: _previous, ...rest } = snapshot;
+      return queue === undefined ? rest : { ...rest, gatewayQueue: queue };
+    });
+
   const publish = Effect.fn("InferenceServerRegistry.publish")(function* (
-    next: ReadonlyArray<InferenceServerSnapshot>,
+    snapshots: ReadonlyArray<InferenceServerSnapshot>,
   ) {
+    const next = withGatewayQueues(snapshots, yield* Ref.get(gatewayQueues));
     const changed = yield* Ref.modify(stateRef, (previous) =>
       Equal.equals(previous, next) ? [false, previous] : [true, next],
     );
     if (changed) yield* PubSub.publish(changes, next);
+  });
+
+  // Untraced: it runs on every admission change; the gateway request span covers it.
+  const publishGatewayQueue = Effect.fnUntraced(function* (
+    id: InferenceServerId,
+    queue: InferenceGatewayQueue,
+  ) {
+    const idle = queue.active.length === 0 && queue.waiting.length === 0;
+    yield* Ref.update(gatewayQueues, (queues) => {
+      const next = new Map(queues);
+      if (idle) next.delete(id);
+      else next.set(id, queue);
+      return next;
+    });
+    yield* publish(yield* Ref.get(stateRef));
   });
 
   // Serialized so a slow probe of old settings cannot resurrect a removed server.
@@ -427,6 +502,7 @@ export const make = Effect.gen(function* () {
   return InferenceServerRegistry.of({
     current: Ref.get(stateRef),
     refresh,
+    publishGatewayQueue,
     get streamChanges() {
       return Stream.unwrap(
         Effect.gen(function* () {

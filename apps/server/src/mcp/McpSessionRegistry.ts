@@ -1,10 +1,11 @@
-import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { type InferenceServerId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Digest from "effect/crypto/Digest";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import type * as Scope from "effect/Scope";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 import { HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
@@ -20,6 +21,16 @@ export interface McpCredentialRequest {
   readonly browserToolsAvailable?: boolean;
   readonly capabilities?: ReadonlySet<McpInvocationContext.McpCapability>;
   readonly subagent?: boolean;
+  /** Also mint a gateway credential bound to this server, revoked with the MCP one. */
+  readonly inferenceServerId?: InferenceServerId;
+}
+
+/** Who holds an inference gateway credential. No thread means T3's own background work. */
+export interface InferenceCaller {
+  readonly serverId: InferenceServerId;
+  readonly threadId?: ThreadId;
+  readonly providerSessionId?: string;
+  readonly providerInstanceId?: ProviderInstanceId;
 }
 
 export interface McpIssuedCredential {
@@ -31,6 +42,12 @@ export interface McpSessionRegistryShape {
   readonly resolve: (
     rawToken: string,
   ) => Effect.Effect<McpInvocationContext.McpThreadInvocationScope | undefined>;
+  /** Only inference credentials resolve here; MCP, OAuth, and session tokens never do. */
+  readonly resolveInference: (rawToken: string) => Effect.Effect<InferenceCaller | undefined>;
+  /** For discovery and text generation processes; revoked when the scope closes. */
+  readonly issueBackgroundInference: (
+    serverId: InferenceServerId,
+  ) => Effect.Effect<McpProviderSession.InferenceGatewayCredential, never, Scope.Scope>;
   readonly touch: (threadId: ThreadId) => Effect.Effect<void>;
   readonly revokeProviderSession: (providerSessionId: string) => Effect.Effect<void>;
   readonly revokeThread: (threadId: ThreadId) => Effect.Effect<void>;
@@ -42,11 +59,25 @@ export class McpSessionRegistry extends Context.Service<
   McpSessionRegistryShape
 >()("t3/mcp/McpSessionRegistry") {}
 
-interface CredentialRecord {
-  readonly tokenHash: string;
-  readonly scope: McpInvocationContext.McpThreadInvocationScope;
-  readonly lastAliveAt: number;
-}
+type CredentialRecord =
+  | {
+      readonly kind: "mcp";
+      readonly tokenHash: string;
+      readonly scope: McpInvocationContext.McpThreadInvocationScope;
+      readonly lastAliveAt: number;
+    }
+  | {
+      readonly kind: "inference";
+      readonly tokenHash: string;
+      readonly caller: InferenceCaller;
+      readonly lastAliveAt: number;
+      readonly expiresAt?: number;
+    };
+
+const threadOf = (record: CredentialRecord) =>
+  record.kind === "mcp" ? record.scope.thread.threadId : record.caller.threadId;
+const providerSessionOf = (record: CredentialRecord) =>
+  record.kind === "mcp" ? record.scope.thread.providerSessionId : record.caller.providerSessionId;
 
 interface RegistryState {
   readonly records: ReadonlyMap<string, CredentialRecord>;
@@ -63,6 +94,9 @@ export interface McpSessionRegistryOptions {
  * refresh the token its subprocess still holds; MCP requests cannot.
  */
 const DEFAULT_LIVENESS_WINDOW_MS = 24 * 60 * 60 * 1_000;
+
+/** Discovery and text generation finish well inside this; their scope usually revokes sooner. */
+export const BACKGROUND_INFERENCE_TTL_MS = 15 * 60 * 1_000;
 
 const bytesToHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -88,18 +122,29 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   const endpoint = NetAddress.isInetAddress(httpServer.address)
     ? `http://${getHttpMcpEndpointHost(httpServer.address.address)}:${httpServer.address.port}/mcp`
     : "http://127.0.0.1/mcp";
+  const gatewayBaseUrl = (serverId: InferenceServerId) =>
+    `${endpoint.slice(0, -"/mcp".length)}/inference/${encodeURIComponent(serverId)}/v1`;
 
   const hashToken = (token: string) =>
     digest
       .digest(Digest.sha256, new TextEncoder().encode(token))
       .pipe(Effect.map(bytesToHex), Effect.orDie);
 
+  const mintToken = Effect.gen(function* () {
+    const rawToken = yield* random.randomBytes(32).pipe(Effect.map(tokenFromBytes), Effect.orDie);
+    return { rawToken, tokenHash: yield* hashToken(rawToken) };
+  });
+
+  const store = (record: CredentialRecord) =>
+    SynchronizedRef.update(state, ({ records }) => ({
+      records: new Map(records).set(record.tokenHash, record),
+    }));
+
   const issue: McpSessionRegistryShape["issue"] = Effect.fn("McpSessionRegistry.issue")(
     function* (request) {
       const issuedAt = yield* currentTimeMillis;
       const providerSessionId = yield* random.uuidV4();
-      const rawToken = yield* random.randomBytes(32).pipe(Effect.map(tokenFromBytes), Effect.orDie);
-      const tokenHash = yield* hashToken(rawToken);
+      const { rawToken, tokenHash } = yield* mintToken;
       const browserToolsAvailable = request.browserToolsAvailable ?? true;
       const scope: McpInvocationContext.McpThreadInvocationScope = {
         environmentId,
@@ -119,11 +164,27 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
         ]),
         issuedAt,
       };
-      yield* SynchronizedRef.update(state, ({ records }) => {
-        const next = new Map(records);
-        next.set(tokenHash, { tokenHash, scope, lastAliveAt: issuedAt });
-        return { records: next };
-      });
+      yield* store({ kind: "mcp", tokenHash, scope, lastAliveAt: issuedAt });
+      let inferenceGateway: McpProviderSession.InferenceGatewayCredential | undefined;
+      if (request.inferenceServerId !== undefined) {
+        const minted = yield* mintToken;
+        yield* store({
+          kind: "inference",
+          tokenHash: minted.tokenHash,
+          caller: {
+            serverId: request.inferenceServerId,
+            threadId: scope.thread.threadId,
+            providerSessionId,
+            providerInstanceId: scope.thread.providerInstanceId,
+          },
+          lastAliveAt: issuedAt,
+        });
+        inferenceGateway = {
+          serverId: request.inferenceServerId,
+          baseUrl: gatewayBaseUrl(request.inferenceServerId),
+          token: minted.rawToken,
+        };
+      }
       return {
         config: {
           environmentId,
@@ -134,27 +195,69 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           authorizationHeader: `Bearer ${rawToken}`,
           browserToolsAvailable: scope.capabilities.has("preview"),
           capabilities: scope.capabilities,
+          ...(inferenceGateway === undefined ? {} : { inferenceGateway }),
         },
       };
     },
   );
 
+  const resolveRecord = Effect.fnUntraced(function* <K extends CredentialRecord["kind"]>(
+    rawToken: string,
+    kind: K,
+  ) {
+    if (rawToken.length === 0) return undefined;
+    const tokenHash = yield* hashToken(rawToken);
+    const timestamp = yield* currentTimeMillis;
+    return yield* SynchronizedRef.modify(state, ({ records }) => {
+      const record = records.get(tokenHash);
+      if (
+        !record ||
+        record.kind !== kind ||
+        timestamp - record.lastAliveAt > livenessWindowMs ||
+        (record.kind === "inference" &&
+          record.expiresAt !== undefined &&
+          timestamp > record.expiresAt)
+      ) {
+        return [undefined, { records }] as const;
+      }
+      const next = new Map(records);
+      next.set(tokenHash, { ...record, lastAliveAt: timestamp });
+      return [record as Extract<CredentialRecord, { kind: K }>, { records: next }] as const;
+    });
+  });
+
   const resolve: McpSessionRegistryShape["resolve"] = Effect.fn("McpSessionRegistry.resolve")(
     function* (rawToken) {
-      if (rawToken.length === 0) return undefined;
-      const tokenHash = yield* hashToken(rawToken);
-      const timestamp = yield* currentTimeMillis;
-      return yield* SynchronizedRef.modify(state, ({ records }) => {
-        const record = records.get(tokenHash);
-        if (!record || timestamp - record.lastAliveAt > livenessWindowMs) {
-          return [undefined, { records }] as const;
-        }
-        const next = new Map(records);
-        next.set(tokenHash, { ...record, lastAliveAt: timestamp });
-        return [record.scope, { records: next }] as const;
-      });
+      return (yield* resolveRecord(rawToken, "mcp"))?.scope;
     },
   );
+
+  const resolveInference: McpSessionRegistryShape["resolveInference"] = Effect.fn(
+    "McpSessionRegistry.resolveInference",
+  )(function* (rawToken) {
+    return (yield* resolveRecord(rawToken, "inference"))?.caller;
+  });
+
+  const issueBackgroundInference: McpSessionRegistryShape["issueBackgroundInference"] = Effect.fn(
+    "McpSessionRegistry.issueBackgroundInference",
+  )(function* (serverId) {
+    const issuedAt = yield* currentTimeMillis;
+    const minted = yield* Effect.acquireRelease(mintToken, ({ tokenHash }) =>
+      SynchronizedRef.update(state, ({ records }) => {
+        const next = new Map(records);
+        next.delete(tokenHash);
+        return { records: next };
+      }),
+    );
+    yield* store({
+      kind: "inference",
+      tokenHash: minted.tokenHash,
+      caller: { serverId },
+      lastAliveAt: issuedAt,
+      expiresAt: issuedAt + BACKGROUND_INFERENCE_TTL_MS,
+    });
+    return { serverId, baseUrl: gatewayBaseUrl(serverId), token: minted.rawToken };
+  });
 
   const touch: McpSessionRegistryShape["touch"] = Effect.fn("McpSessionRegistry.touch")(
     function* (threadId) {
@@ -162,7 +265,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       yield* SynchronizedRef.update(state, ({ records }) => {
         const next = new Map(records);
         for (const [tokenHash, record] of records) {
-          if (record.scope.thread.threadId === threadId) {
+          if (threadOf(record) === threadId) {
             next.set(tokenHash, { ...record, lastAliveAt: timestamp });
           }
         }
@@ -179,14 +282,16 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   return McpSessionRegistry.of({
     issue,
     resolve,
+    resolveInference,
+    issueBackgroundInference,
     touch,
     revokeProviderSession: Effect.fn("McpSessionRegistry.revokeProviderSession")(
       function* (providerSessionId) {
-        yield* revokeWhere((record) => record.scope.thread.providerSessionId === providerSessionId);
+        yield* revokeWhere((record) => providerSessionOf(record) === providerSessionId);
       },
     ),
     revokeThread: Effect.fn("McpSessionRegistry.revokeThread")(function* (threadId) {
-      yield* revokeWhere((record) => record.scope.thread.threadId === threadId);
+      yield* revokeWhere((record) => threadOf(record) === threadId);
     }),
     revokeAll: SynchronizedRef.set(state, { records: new Map() }),
   });

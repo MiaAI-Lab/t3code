@@ -141,8 +141,8 @@ To skip this file, register the server in **Settings → Inference** and link th
 instance to it. T3 Code then adds the server to OpenCode as `t3-<server>` with every model it
 reports, sized from what the server advertises, and sends its requests through the gateway, like
 [Pi on a registered server](#pi-on-a-registered-server). Pick a model such as
-`t3-rtx/your-model-id`. Requests from OpenCode 2 are counted per instance, not per thread, because
-one OpenCode server runs all of the instance's threads. This needs the server to serve OpenAI Chat
+`t3-rtx/your-model-id`. Requests are counted per thread, except OpenCode's own title requests,
+which count toward the instance. This needs the server to serve OpenAI Chat
 Completions, and does not apply when **Server URL** points at an OpenCode server you run yourself;
 the provider's status says when the link is not used and why.
 

@@ -31,10 +31,17 @@ it("points app-server at the gateway's Responses route with the token only in en
       "features.multi_agent=false",
       "-c",
       'web_search="disabled"',
+      "-c",
+      "model_context_window=813056",
     ],
     environment: { [CODEX_GATEWAY_TOKEN_ENV]: "secret" },
   });
   expect(launch.args.join(" ")).not.toContain("secret");
+  const unsized = codexGatewayLaunch({
+    server: { ...server, models: [{ id: "tiny" }] },
+    credential,
+  });
+  expect(unsized.args.some((arg) => arg.startsWith("model_context_window"))).toBe(false);
 });
 
 it.effect("a session launches managed only with its own credential for a Responses server", () =>

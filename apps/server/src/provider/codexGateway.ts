@@ -17,14 +17,16 @@ export interface CodexGatewayLaunch {
 const tomlString = (value: string) => JSON.stringify(value);
 
 /**
- * App-server takes only `-c` overrides. Multi-agent tools arrive as a tool namespace and web
- * search as a hosted tool; servers that run function tools only reject both.
+ * App-server takes only `-c` overrides. Web search is a hosted tool and multi-agent spawns agents
+ * T3 does not route; servers that run function tools only reject the first.
+ * Codex has no metadata for local models, so it is told the smallest window the server serves.
  */
 export function codexGatewayLaunch({
   server,
   credential,
 }: InferenceGateway.ManagedServerCredential): CodexGatewayLaunch {
   const provider = `t3-${server.serverId}`;
+  const windows = server.models.flatMap((model) => model.contextWindow ?? []);
   return {
     args: [
       "-c",
@@ -35,6 +37,7 @@ export function codexGatewayLaunch({
       "features.multi_agent=false",
       "-c",
       'web_search="disabled"',
+      ...(windows.length === 0 ? [] : ["-c", `model_context_window=${Math.min(...windows)}`]),
     ],
     environment: { [CODEX_GATEWAY_TOKEN_ENV]: credential.token },
   };
@@ -99,7 +102,7 @@ export function withCodexGatewayStatus<
   const { serverId, displayName, models } = resolution.server;
   return {
     ...draft,
-    message: `Experimental: T3 Code runs Codex on ${displayName} as t3-${serverId}. Servers that run function tools only reject T3 tools, which Codex sends as a tool namespace.`,
+    message: `Experimental: T3 Code runs Codex on ${displayName} as t3-${serverId}.`,
     models: models.map((model, index) => ({
       slug: model.id,
       name: model.id,

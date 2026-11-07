@@ -219,3 +219,42 @@ export function describeBackgroundWriting(
     ? "local models first, then any provider"
     : "local models";
 }
+
+/**
+ * Where a registered server may have moved: other servers on its host that no other entry owns,
+ * those serving a model it served first. One that wants a key still qualifies; its saved key goes
+ * along when it moves.
+ */
+export function repairCandidates(
+  servers: ReadonlyArray<InferenceDiscoveredServer>,
+  id: InferenceServerId,
+  baseUrl: string,
+  knownModelIds: ReadonlySet<string>,
+): ReadonlyArray<{ readonly server: InferenceDiscoveredServer; readonly sameModel: boolean }> {
+  return servers
+    .filter(
+      (server) =>
+        !sameAddress(server.baseUrl, baseUrl) &&
+        (server.registeredServerId === undefined || server.registeredServerId === id),
+    )
+    .map((server) => ({
+      server,
+      sameModel: server.models.some((model) => knownModelIds.has(model.id)),
+    }))
+    .toSorted((left, right) => Number(right.sameModel) - Number(left.sameModel));
+}
+
+/** Models a server served, from its last good check and the selections that name it. */
+export function knownServerModelIds(
+  id: InferenceServerId,
+  snapshotModels: ReadonlyArray<{ readonly id: string }>,
+  selections: ReadonlyArray<{ readonly model: string } | null | undefined>,
+): ReadonlySet<string> {
+  const prefix = `t3-${id}/`;
+  return new Set([
+    ...snapshotModels.map((model) => model.id),
+    ...selections.flatMap((selection) =>
+      selection?.model.startsWith(prefix) ? [selection.model.slice(prefix.length)] : [],
+    ),
+  ]);
+}

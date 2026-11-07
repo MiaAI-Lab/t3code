@@ -1,4 +1,5 @@
 import { VoiceInputSetup } from "./VoiceInputSetup";
+import { useInferenceOutageBannerItem } from "./useInferenceOutageBannerItem";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
@@ -2473,13 +2474,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       getModelDisabledReason={getModelDisabledReason}
     />
   );
+  const inferenceOutageItem = useInferenceOutageBannerItem(environmentId, selectedProviderStatus);
+  const baseBannerItems =
+    inferenceOutageItem === null ? props.bannerItems : [...props.bannerItems, inferenceOutageItem];
   // An open question owns the space above the composer. Only a machine problem,
   // which is why an answer could not go through, stays beside it.
   const bannerItems: readonly ComposerBannerStackItem[] =
     runtimeModeCeilingDenial === undefined || activePendingProgress
-      ? props.bannerItems
+      ? baseBannerItems
       : [
-          ...props.bannerItems,
+          ...baseBannerItems,
           {
             id: "managed-runtime-mode",
             variant: "warning",

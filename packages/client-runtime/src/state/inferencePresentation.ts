@@ -68,6 +68,35 @@ export function describeInferenceServerFallback(
   }
 }
 
+export interface InferenceServerOutage {
+  readonly id: InferenceServerId;
+  readonly name: string;
+  readonly baseUrl: string;
+  readonly message: string;
+}
+
+/**
+ * The server a selected agent is linked to, while it is down. Its gateway models drop out of the
+ * agent's list until it answers again; checking and turned-off servers are not an outage.
+ */
+export function inferenceServerOutage(input: {
+  readonly serverId: string | undefined;
+  readonly servers: InferenceServers;
+  readonly snapshots: ReadonlyArray<InferenceServerSnapshot>;
+}): InferenceServerOutage | null {
+  if (input.serverId === undefined) return null;
+  const config = input.servers[input.serverId as InferenceServerId];
+  const snapshot = input.snapshots.find((candidate) => candidate.id === input.serverId);
+  if (!config?.enabled || snapshot === undefined) return null;
+  if (snapshot.status !== "unreachable" && snapshot.status !== "error") return null;
+  return {
+    id: input.serverId as InferenceServerId,
+    name: inferenceServerDisplayName(input.serverId, config),
+    baseUrl: config.baseUrl,
+    message: snapshot.message ?? "It did not answer its last check.",
+  };
+}
+
 /** URL, engine, T3's concurrency cap and fallback, in the order a server's summary line shows them. */
 export function inferenceServerDetails(
   config: InferenceServerConfig,

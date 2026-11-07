@@ -17,6 +17,7 @@ import {
   formatMeasuredSeconds,
   formatTokensPerSecond,
   groupLocalCompute,
+  inferenceServerOutage,
   inferenceServerRequestHealth,
   lastRequestObservations,
   localComputeCachedShare,
@@ -360,5 +361,36 @@ describe("groupLocalCompute", () => {
     expect(localComputeCachedShare({ cachedPromptTokens: 0, promptTokensWithCacheData: 0 })).toBe(
       null,
     );
+  });
+});
+
+describe("inferenceServerOutage", () => {
+  const rtx = InferenceServerId.make("rtx");
+  const snapshot = (status: InferenceServerSnapshot["status"]): InferenceServerSnapshot => ({
+    id: rtx,
+    displayName: "rtx",
+    baseUrl: "http://localhost:8888/v1",
+    enabled: true,
+    status,
+    checkedAt: null,
+    message: "Could not connect to the server.",
+    models: [],
+  });
+  const outage = (status: InferenceServerSnapshot["status"], enabled = true) =>
+    inferenceServerOutage({
+      serverId: rtx,
+      servers: { [rtx]: { baseUrl: "http://localhost:8888/v1", apiKey: "", enabled } },
+      snapshots: [snapshot(status)],
+    });
+
+  it("reports an enabled linked server that is down, not one being checked or turned off", () => {
+    expect(outage("unreachable")).toEqual({
+      id: rtx,
+      name: "rtx",
+      baseUrl: "http://localhost:8888/v1",
+      message: "Could not connect to the server.",
+    });
+    expect(outage("checking")).toBeNull();
+    expect(outage("unreachable", false)).toBeNull();
   });
 });

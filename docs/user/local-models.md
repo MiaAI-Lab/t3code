@@ -30,6 +30,12 @@ concurrent requests**. T3 Code checks each server and shows whether it is ready,
 serves with their context windows, and its current load when the server reports one. **Refresh**
 checks again.
 
+When a server stops answering, its row offers **Check again**, **Find server**, and **Change
+address**, and a thread whose agent is linked to it says so above the message box. **Find
+server** searches that server's machine and marks the address serving the same model; picking it
+moves the server there and keeps its name, key, and linked agents. Threads already running keep
+the old address until their agent session restarts.
+
 Each server also shows when it was last checked, marked overdue when checks have stopped, whether
 it reports cached prompt tokens, and the last request through T3 Code that failed or was rejected
 in the past hour. Cached tokens show as `unknown` until a request in the last day comes back with a
@@ -199,7 +205,9 @@ Linking a Codex instance to a registered server that serves the Responses API do
 and is **experimental**. T3 Code starts Codex with a `t3-<server>` provider that goes through the
 gateway, the model picker offers only that server's models, and Codex's multi-agent and web search
 tools are turned off. Codex sends T3 Code's own tools as a tool group that some servers reject
-("function tools only"); on such a server, threads fail until it accepts them.
+("function tools only"); on such a server, threads fail until it accepts them. While the linked
+server is down or cannot serve the Responses API, the instance lists no models and its threads
+wait: Codex never falls back to your OpenAI login. Disable the server to use that login again.
 
 ## Mark the instance as local
 

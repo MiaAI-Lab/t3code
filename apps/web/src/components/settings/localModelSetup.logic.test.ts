@@ -2,9 +2,11 @@ import { InferenceServerId, ProviderDriverKind, ProviderInstanceId } from "@t3to
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  knownServerModelIds,
   linkedModelSlug,
   localModelAgentChoices,
   planLocalModelSetup,
+  repairCandidates,
 } from "./localModelSetup.logic";
 
 const pi = ProviderDriverKind.make("pi");
@@ -142,5 +144,38 @@ describe("linkedModelSlug", () => {
       "GLM-5.3-Flash",
     );
     expect(linkedModelSlug([{ slug: "t3-rtx/GLM-5" }], rtx, "GLM-5.3-Flash")).toBeUndefined();
+  });
+});
+
+describe("repairCandidates", () => {
+  it("offers other servers on the host, the one serving a known model first", () => {
+    const spark1 = InferenceServerId.make("spark1");
+    const known = knownServerModelIds(
+      rtx,
+      [],
+      [{ model: "t3-rtx/GLM-5.3-Flash" }, { model: "gpt-6-luna" }, null],
+    );
+    expect([...known]).toEqual(["GLM-5.3-Flash"]);
+    const found = [
+      { baseUrl: "http://localhost:8888/v1", status: "ready", models: [], registeredServerId: rtx },
+      { baseUrl: "http://localhost:39459/v1", status: "ready", models: [{ id: "DeepSeek" }] },
+      { baseUrl: "http://localhost:8030/v1", status: "ready", models: [{ id: "GLM-5.3-Flash" }] },
+      { baseUrl: "http://localhost:11434/v1", status: "needs-key", models: [] },
+      {
+        baseUrl: "http://localhost:9000/v1",
+        status: "ready",
+        models: [{ id: "GLM-5.3-Flash" }],
+        registeredServerId: spark1,
+      },
+    ] as const;
+    expect(
+      repairCandidates(found, rtx, "http://localhost:8888/v1/", known).map(
+        ({ server, sameModel }) => [server.baseUrl, sameModel],
+      ),
+    ).toEqual([
+      ["http://localhost:8030/v1", true],
+      ["http://localhost:39459/v1", false],
+      ["http://localhost:11434/v1", false],
+    ]);
   });
 });

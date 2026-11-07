@@ -38,6 +38,8 @@ import { Button } from "../ui/button";
 import { RefreshIcon } from "../ui/refresh-icon";
 import { Switch } from "../ui/switch";
 import { InferenceServerDialog } from "./InferenceServerDialog";
+import { FindInferenceServerDialog } from "./FindInferenceServerDialog";
+import { knownServerModelIds } from "./localModelSetup.logic";
 import { UseLocalModelDialog } from "./UseLocalModelDialog";
 import {
   describeInferenceModelContext,
@@ -74,9 +76,12 @@ const USAGE_WINDOW = "24h";
 
 export function InferenceSettingsPanel({
   openLocalSetup = false,
+  repairServerId,
 }: {
   /** Opens "Use a local model" on arrival, as links from elsewhere ask. */
   readonly openLocalSetup?: boolean;
+  /** Opens "Find" for this server on arrival, as the composer's outage notice asks. */
+  readonly repairServerId?: string | undefined;
 }) {
   const { scope, environment } = useSettingsScope();
   return (
@@ -87,6 +92,7 @@ export function InferenceSettingsPanel({
           environment={environment}
           projectScoped={scope.kind === "project" || scope.kind === "checkout"}
           openLocalSetup={openLocalSetup}
+          repairServerId={repairServerId}
         />
       ) : (
         <SettingsSection {...searchableSetting("inference-servers")}>
@@ -104,10 +110,12 @@ function EnvironmentInferenceServers({
   environment,
   projectScoped,
   openLocalSetup,
+  repairServerId,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly projectScoped: boolean;
   readonly openLocalSetup: boolean;
+  readonly repairServerId: string | undefined;
 }) {
   const environmentId = environment.environmentId;
   const sessionState = useEnvironmentSessionState(environmentId);
@@ -146,6 +154,13 @@ function EnvironmentInferenceServers({
     serverEnvironment.discoverInferenceServers.permissionAtom(environmentId),
   );
   const [localSetupOpen, setLocalSetupOpen] = useState(openLocalSetup);
+  const [finding, setFinding] = useState<InferenceServerId | null>(
+    repairServerId === undefined ? null : (repairServerId as InferenceServerId),
+  );
+  const selections = useEnvironmentSettings(environmentId, (settings) => [
+    settings.defaultModelSelection,
+    settings.textGenerationModelSelection,
+  ]);
   const [dialog, setDialog] = useState<
     null | { readonly mode: "add" } | { readonly mode: "edit"; readonly id: InferenceServerId }
   >(null);
@@ -226,6 +241,8 @@ function EnvironmentInferenceServers({
               snapshot={snapshots.find((candidate) => candidate.id === id)}
               readOnly={readOnly}
               onEdit={() => setDialog({ mode: "edit", id })}
+              onCheckAgain={() => void refresh({ environmentId, input: { id } })}
+              onFind={canDiscover ? () => setFinding(id) : undefined}
               onEnabledChange={(enabled) =>
                 updateSettings({ inferenceServers: { [id]: { ...config, enabled } } })
               }
@@ -236,6 +253,24 @@ function EnvironmentInferenceServers({
           ))
         )}
       </SettingsSection>
+      {finding !== null && !readOnly && servers?.[finding] ? (
+        <FindInferenceServerDialog
+          environmentId={environmentId}
+          id={finding}
+          name={inferenceServerDisplayName(finding, servers[finding])}
+          config={servers[finding]}
+          knownModelIds={knownServerModelIds(
+            finding,
+            snapshots.find((snapshot) => snapshot.id === finding)?.models ?? [],
+            selections,
+          )}
+          onChangeAddress={() => {
+            setFinding(null);
+            setDialog({ mode: "edit", id: finding });
+          }}
+          onClose={() => setFinding(null)}
+        />
+      ) : null}
       {localSetupOpen && !readOnly ? (
         <UseLocalModelDialog
           environmentId={environmentId}
@@ -269,6 +304,8 @@ function InferenceServerRow({
   snapshot,
   readOnly,
   onEdit,
+  onCheckAgain,
+  onFind,
   onEnabledChange,
   onRemove,
 }: {
@@ -281,11 +318,14 @@ function InferenceServerRow({
   readonly snapshot: InferenceServerSnapshot | undefined;
   readonly readOnly: boolean;
   readonly onEdit: () => void;
+  readonly onCheckAgain: () => void;
+  readonly onFind: (() => void) | undefined;
   readonly onEnabledChange: (enabled: boolean) => void;
   readonly onRemove: () => void;
 }) {
   const name = inferenceServerDisplayName(id, config);
   const current = config.enabled && snapshot?.enabled ? snapshot : undefined;
+  const down = current?.status === "unreachable" || current?.status === "error";
   const load = current ? describeInferenceServerLoad(current) : null;
   const promptCache = current ? describeInferencePromptCache(current) : null;
   const details = inferenceServerDetails(config, current, fallback);
@@ -311,6 +351,22 @@ function InferenceServerRow({
           current ? (
             <div className="grid gap-1">
               {current.message ? <p className="wrap-anywhere">{current.message}</p> : null}
+              {down && !readOnly ? (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  <Button size="xs" variant="outline" onClick={onCheckAgain}>
+                    Check again
+                  </Button>
+                  {onFind ? (
+                    <Button size="xs" variant="outline" onClick={onFind}>
+                      <SearchIcon className="size-3" aria-hidden />
+                      Find server
+                    </Button>
+                  ) : null}
+                  <Button size="xs" variant="outline" onClick={onEdit}>
+                    Change address
+                  </Button>
+                </div>
+              ) : null}
               {current.checkedAt ? (
                 <InferenceServerProbeFreshness
                   checkedAt={current.checkedAt}

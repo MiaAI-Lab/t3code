@@ -915,6 +915,8 @@ export const InferenceServerConfig = Schema.Struct({
   apiKey: SettingsSecretValue.pipe(Schema.withDecodingDefault(Effect.succeed("")), secretSetting),
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   maxConcurrency: Schema.optional(PositiveInt),
+  /** Serves this server's requests that cannot reach it before they are sent, if it serves the same model. */
+  fallbackServerId: Schema.optional(InferenceServerId),
 });
 export type InferenceServerConfig = typeof InferenceServerConfig.Type;
 

@@ -96,6 +96,8 @@ export const InferenceUsageRow = Schema.Struct({
   failed: NonNegativeInt,
   promptTokens: NonNegativeInt,
   cachedPromptTokens: NonNegativeInt,
+  /** Prompt tokens of the requests whose server reported cache usage; the denominator for a cached share. */
+  promptTokensWithCacheData: Schema.optional(NonNegativeInt),
   completionTokens: NonNegativeInt,
   queueWaitMs: Distribution,
   ttftMs: Distribution,
@@ -121,5 +123,10 @@ export const InferenceThreadLastRequest = Schema.Struct({
   queueWaitMs: Schema.NullOr(NonNegativeInt),
   ttftMs: Schema.NullOr(NonNegativeInt),
   decodeTokensPerSecond: Schema.NullOr(Schema.Number),
+  /** Set when the request went to a fallback because this server could not take it. */
+  fallbackFrom: Schema.optional(InferenceServerId),
+  /** Compared with the thread's previous request; absent when there is none or it was not measured. */
+  staticPrefixChanged: Schema.optional(Schema.Boolean),
+  serverChanged: Schema.optional(Schema.Boolean),
 });
 export type InferenceThreadLastRequest = typeof InferenceThreadLastRequest.Type;

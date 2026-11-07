@@ -1,22 +1,17 @@
 import {
   InferenceServerId,
   type InferenceServerConfig,
-  type InferenceServerModel,
-  type InferenceServerSnapshot,
-  type InferenceUsageRow,
-  type InferenceUsageSummary,
   type SecretReference,
-  type UnifiedSettings,
 } from "@t3tools/contracts";
+import {
+  presentInferenceServers,
+  type InferenceServers,
+} from "@t3tools/client-runtime/state/inference-presentation";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
-import { formatRelativeTimeLabel, msUntilRelativeTimeChange } from "../../timestampFormat";
-
 const decodeInferenceServerId = Schema.decodeOption(InferenceServerId);
-
-export type InferenceServers = UnifiedSettings["inferenceServers"];
 
 /**
  * An OpenAI-compatible root the server can probe. A bare host gets `/v1`, the root every supported
@@ -152,50 +147,6 @@ export function inferenceServerFromDraft(
   });
 }
 
-export function inferenceServerDisplayName(
-  id: string,
-  config: Pick<InferenceServerConfig, "displayName"> | undefined,
-): string {
-  return config?.displayName?.trim() || id;
-}
-
-function formatTokens(tokens: number): string {
-  if (tokens >= 1_000_000) return `${Number((tokens / 1_000_000).toFixed(1))}M`;
-  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k`;
-  return String(tokens);
-}
-
-/** "128k context", with the trained window only when the server serves a different one. */
-export function describeInferenceModelContext(model: InferenceServerModel): string | null {
-  const served = model.servedContextWindow;
-  const trained = model.trainedContextWindow;
-  if (served === undefined) {
-    return trained === undefined ? null : `trained for ${formatTokens(trained)}`;
-  }
-  const base = `${formatTokens(served)} context`;
-  return trained !== undefined && trained !== served
-    ? `${base} (trained ${formatTokens(trained)})`
-    : base;
-}
-
-/** The summary-line note for a server's fallback, or null when it has none. */
-export function describeInferenceServerFallback(
-  config: Pick<InferenceServerConfig, "fallbackServerId">,
-  servers: InferenceServers,
-): string | null {
-  const link = resolveInferenceServerLink(config.fallbackServerId, servers);
-  switch (link.kind) {
-    case "none":
-      return null;
-    case "enabled":
-      return `falls back to ${link.name}`;
-    case "disabled":
-      return `falls back to ${link.name} (disabled)`;
-    case "missing":
-      return `falls back to ${link.id} (not registered)`;
-  }
-}
-
 /** Removes a server and, in the same patch, clears it as the fallback of the others. */
 export function inferenceServerRemovalPatch(
   servers: InferenceServers | undefined,
@@ -208,149 +159,4 @@ export function inferenceServerRemovalPatch(
     patch[otherId] = rest;
   }
   return patch;
-}
-
-export function describeInferenceServerLoad(
-  snapshot: Pick<InferenceServerSnapshot, "load" | "maxConcurrentRequests">,
-): string | null {
-  const parts: string[] = [];
-  if (snapshot.load) {
-    parts.push(`${snapshot.load.running} running`, `${snapshot.load.waiting} waiting`);
-  }
-  if (snapshot.maxConcurrentRequests !== undefined) {
-    parts.push(`up to ${snapshot.maxConcurrentRequests} at once`);
-  }
-  return parts.length === 0 ? null : parts.join(" · ");
-}
-
-const GIB = 1024 ** 3;
-const formatGib = (bytes: number) => (bytes / GIB).toFixed(1);
-
-export interface InferencePromptCacheHealth {
-  readonly summary: string;
-  /** Set only when the cache is full and its cached share is falling. */
-  readonly warning: string | null;
-  readonly advice: string | null;
-}
-
-export function describeInferencePromptCache(
-  snapshot: Pick<InferenceServerSnapshot, "engine" | "promptCache">,
-): InferencePromptCacheHealth | null {
-  const cache = snapshot.promptCache;
-  if (cache === undefined) return null;
-  const tensorFold = snapshot.engine === "TensorFold";
-  if (cache.status === "none") {
-    return {
-      summary: "No prompt cache: every request reads its whole prompt",
-      warning: null,
-      advice: tensorFold
-        ? "Start TensorFold with --prompt-cache-gib to keep threads warm, if memory allows."
-        : "Turn on the server's prompt cache to keep threads warm, if memory allows.",
-    };
-  }
-  const size =
-    cache.retainedBytes === undefined
-      ? formatGib(cache.budgetBytes)
-      : `${formatGib(cache.retainedBytes)} / ${formatGib(cache.budgetBytes)}`;
-  const parts = [`Prompt cache ${size} GiB`];
-  if (cache.states !== undefined) {
-    parts.push(`${cache.states} saved ${cache.states === 1 ? "prompt" : "prompts"}`);
-  }
-  if (cache.recentCachedShare !== undefined) {
-    parts.push(`${Math.round(cache.recentCachedShare * 100)}% of prompt tokens cached recently`);
-  }
-  const falling = cache.status === "saturated-falling";
-  return {
-    summary: parts.join(" · "),
-    warning: falling
-      ? "The prompt cache is full and less of each prompt is cached than before, so threads are being pushed out."
-      : null,
-    advice: !falling
-      ? null
-      : tensorFold
-        ? "Restart TensorFold with a larger --prompt-cache-gib, if memory allows."
-        : "Give the server a larger prompt cache, if memory allows.",
-  };
-}
-
-export type InferenceServerLink =
-  | { readonly kind: "none" }
-  | { readonly kind: "enabled"; readonly name: string }
-  | { readonly kind: "disabled"; readonly name: string }
-  | { readonly kind: "missing"; readonly id: string };
-
-/** What an instance's `inferenceServerId` points at in its environment's settings. */
-/** Optimistic removals hold `null` until the server echoes the patch. */
-export function presentInferenceServers(
-  servers: InferenceServers | undefined,
-): ReadonlyArray<readonly [InferenceServerId, InferenceServerConfig]> {
-  return Object.entries(servers ?? {}).flatMap(([id, config]) =>
-    config ? [[id as InferenceServerId, config] as const] : [],
-  );
-}
-
-export function resolveInferenceServerLink(
-  inferenceServerId: string | undefined,
-  servers: InferenceServers,
-): InferenceServerLink {
-  if (inferenceServerId === undefined) return { kind: "none" };
-  const config = servers[inferenceServerId as InferenceServerId];
-  if (!config) return { kind: "missing", id: inferenceServerId };
-  const name = inferenceServerDisplayName(inferenceServerId, config);
-  return config.enabled ? { kind: "enabled", name } : { kind: "disabled", name };
-}
-
-export interface InferenceServerProbeFreshness {
-  readonly label: string;
-  readonly stale: boolean;
-  /** When the label or staleness next changes, or null when neither will. */
-  readonly msUntilChange: number | null;
-}
-
-/** "Checked 3m ago", stale once two probe intervals pass without a check. */
-export function describeInferenceServerProbeFreshness(
-  checkedAt: string,
-  probeIntervalMs: number,
-  nowMs: number,
-): InferenceServerProbeFreshness | null {
-  const checkedMs = Date.parse(checkedAt);
-  const labelChangeMs = msUntilRelativeTimeChange(checkedAt, nowMs);
-  if (Number.isNaN(checkedMs) || labelChangeMs === null) return null;
-  // With periodic checks off, a check only happens on refresh or a settings change.
-  const staleAtMs = probeIntervalMs > 0 ? checkedMs + 2 * probeIntervalMs : Infinity;
-  const stale = nowMs >= staleAtMs;
-  return {
-    label: `Checked ${formatRelativeTimeLabel(checkedAt, nowMs)}`,
-    stale,
-    msUntilChange: stale ? labelChangeMs : Math.min(labelChangeMs, staleAtMs - nowMs),
-  };
-}
-
-const RECENT_FAILURE_MS = 60 * 60 * 1_000;
-
-export interface InferenceServerRequestHealth {
-  /** Whether any request in the window got a cached prompt count back; false means unknown. */
-  readonly reportsCachedTokens: boolean;
-  /** The latest failed or rejected request within the hour before the summary. */
-  readonly recentFailure: NonNullable<InferenceUsageRow["lastFailure"]> | null;
-}
-
-export function inferenceServerRequestHealth(
-  summary: InferenceUsageSummary,
-  serverId: InferenceServerId,
-): InferenceServerRequestHealth {
-  const rows = summary.rows.filter((row) => row.serverId === serverId);
-  const cutoffMs = Date.parse(summary.generatedAt) - RECENT_FAILURE_MS;
-  const recentFailure = rows
-    .flatMap((row) => (row.lastFailure ? [row.lastFailure] : []))
-    .filter((failure) => Date.parse(failure.at) >= cutoffMs)
-    .reduce<InferenceServerRequestHealth["recentFailure"]>(
-      (latest, failure) =>
-        latest === null || Date.parse(failure.at) > Date.parse(latest.at) ? failure : latest,
-      null,
-    );
-  return {
-    reportsCachedTokens: rows.some((row) => (row.promptTokensWithCacheData ?? 0) > 0),
-    recentFailure,
-  };
 }

@@ -4,26 +4,23 @@ import { formatCount, formatTokens } from "@t3tools/shared/usageFormat";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
-import {
-  MISSING_MEASUREMENT,
-  formatCachedShare,
-  formatMeasuredSeconds,
-  formatTokensPerSecond,
-} from "../../lib/inferenceMetrics";
 import { cn } from "../../lib/utils";
 import { environmentsWithInferenceServersAtom, inferenceUsageAtom } from "../../state/inference";
 import { serverEnvironment } from "../../state/server";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import {
   INFERENCE_PURPOSE_LABELS,
+  LOCAL_COMPUTE_FOOTNOTE,
+  LOCAL_COMPUTE_WINDOWS,
   LOCAL_COMPUTE_WINDOW_LABELS,
+  formatCachedShare,
+  formatLocalComputeDistribution,
   groupLocalCompute,
   localComputeCachedShare,
   sumLocalCompute,
   type LocalComputeTotals,
-} from "./UsageLocalCompute.logic";
+} from "@t3tools/client-runtime/state/inference-presentation";
 
-const WINDOWS: ReadonlyArray<InferenceUsageWindow> = ["24h", "7d"];
 const COLUMN_COUNT = 8;
 
 /** Requests T3's gateway sent to this user's own inference servers. */
@@ -60,7 +57,7 @@ export function UsageLocalCompute({
             if (value === "24h" || value === "7d") setWindow(value);
           }}
         >
-          {WINDOWS.map((option) => (
+          {LOCAL_COMPUTE_WINDOWS.map((option) => (
             <Toggle key={option} value={option}>
               {option}
             </Toggle>
@@ -75,9 +72,7 @@ export function UsageLocalCompute({
           window={window}
         />
       ))}
-      <p className="text-xs text-muted-foreground">
-        Measured by T3&apos;s gateway; tools calling your server directly are not counted.
-      </p>
+      <p className="text-xs text-muted-foreground">{LOCAL_COMPUTE_FOOTNOTE}</p>
     </section>
   );
 }
@@ -238,15 +233,15 @@ function MeasuredCells({ row }: { readonly row: InferenceUsageRow }) {
     <>
       <DistributionCell
         n={row.ttftMs.n}
-        value={`${formatMeasuredSeconds(row.ttftMs.p50)} / ${formatMeasuredSeconds(row.ttftMs.p95)}`}
+        value={formatLocalComputeDistribution(row.ttftMs, "seconds")}
       />
       <DistributionCell
         n={row.decodeTokensPerSecond.n}
-        value={formatTokensPerSecond(row.decodeTokensPerSecond.p50)}
+        value={formatLocalComputeDistribution(row.decodeTokensPerSecond, "rate")}
       />
       <DistributionCell
         n={row.queueWaitMs.n}
-        value={`${formatMeasuredSeconds(row.queueWaitMs.p50)} / ${formatMeasuredSeconds(row.queueWaitMs.p95)}`}
+        value={formatLocalComputeDistribution(row.queueWaitMs, "seconds")}
         last
       />
     </>
@@ -264,7 +259,7 @@ function DistributionCell({
 }) {
   return (
     <td className={cn("py-2 pl-4", last && "pr-2")}>
-      {n === 0 ? MISSING_MEASUREMENT : value}
+      {value}
       <span className="ms-1 text-xs text-muted-foreground/70">n={formatCount(n)}</span>
     </td>
   );

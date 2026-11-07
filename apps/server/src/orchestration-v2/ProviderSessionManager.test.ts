@@ -14,6 +14,7 @@ import {
   type Project,
   ProjectId,
   ProviderDriverKind,
+  InferenceServerId,
   ProviderInstanceId,
   type ProviderSessionId,
   ThreadId,
@@ -2192,6 +2193,67 @@ it.effect(
           }),
         ),
       );
+    }),
+);
+
+it.effect(
+  "ProviderSessionManagerV2 issues a gateway credential only for instances linked to an enabled inference server",
+  () =>
+    Effect.gen(function* () {
+      const openWith = (enabled: boolean) =>
+        Effect.gen(function* () {
+          const state = yield* Ref.make(emptyState);
+          const mcpConfigs = yield* Ref.make<
+            ReadonlyArray<McpProviderSession.McpProviderSessionConfig | undefined>
+          >([]);
+          yield* Effect.gen(function* () {
+            const eventSink = yield* EventSink.EventSinkV2;
+            const idAllocator = yield* IdAllocator.IdAllocatorV2;
+            const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+            const now = yield* DateTime.now;
+            const threadId = ThreadId.make("thread-provider-session-manager-inference");
+            const providerSessionId = yield* idAllocator.allocate.providerSession({
+              providerInstanceId: modelSelection.instanceId,
+              threadId,
+            });
+            yield* eventSink.write({
+              events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now })],
+            });
+            yield* manager.open({ threadId, providerSessionId, modelSelection, runtimePolicy });
+            yield* manager.close(providerSessionId);
+          }).pipe(
+            Effect.provide(
+              layerTest({
+                state,
+                idleTimeoutMs: 1_000,
+                mcpConfigs,
+                serverSettingsLayer: ServerSettings.layerTest({
+                  inferenceServers: {
+                    [InferenceServerId.make("rtx")]: {
+                      baseUrl: "http://localhost:8888/v1",
+                      apiKey: "",
+                      enabled,
+                    },
+                  },
+                  providerInstances: {
+                    [modelSelection.instanceId]: {
+                      driver: CODEX_DRIVER,
+                      inferenceServerId: InferenceServerId.make("rtx"),
+                    },
+                  },
+                }).pipe(Layer.orDie),
+              }),
+            ),
+          );
+          return (yield* Ref.get(mcpConfigs))[0];
+        });
+
+      const linked = yield* openWith(true);
+      assert.equal(linked?.inferenceGateway?.serverId, "rtx");
+      assert.isTrue(linked?.inferenceGateway?.baseUrl.endsWith("/inference/rtx/v1"));
+      const disabled = yield* openWith(false);
+      assert.isDefined(disabled);
+      assert.isUndefined(disabled?.inferenceGateway);
     }),
 );
 

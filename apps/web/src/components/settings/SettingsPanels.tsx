@@ -1487,7 +1487,7 @@ export function ThreadsSettingsPanel() {
       </SettingsSection>
 
       {hasServerTargets ? (
-        <SettingsSection id="auto-settle" title="Auto-settle">
+        <SettingsSection id="auto-settle" title="Settling">
           <SettingsRow
             serverScoped
             settingKeys={["sidebarAutoSettleOnMerge"]}
@@ -1710,12 +1710,9 @@ export function BackgroundWritingSettings() {
         settingKeys={["textGenerationModelSelection"]}
         {...searchableSetting("text-generation-model")}
         description={
-          !settings.textGenerationModelSelectionExplicit &&
-          Object.values(settings.providerInstances).some(
-            (instance) => instance.inference === "local",
-          )
-            ? "Automatic: a ready local model writes thread titles and other generated text until you pick a model here. Source control can override it."
-            : "Used for thread titles and other generated text on connected devices with this provider. Source control can override it."
+          settings.textGenerationModelSelectionExplicit
+            ? "Writes thread titles, commit messages, pull request text and branch names. Source control can override it."
+            : "Automatic: a ready local model writes thread titles, commit messages, pull request text and branch names until you pick one here. Source control can override it."
         }
         resetAction={
           hasServerTargets && isTextGenerationModelDirty ? (
@@ -1734,11 +1731,11 @@ export function BackgroundWritingSettings() {
         control={
           !hasServerTargets ? (
             <span className="text-sm text-muted-foreground">
-              Connect an environment to choose its text generation model.
+              Connect a computer to choose its background writing model.
             </span>
           ) : !hasTextGenerationProvider ? (
             <span className="text-sm text-muted-foreground">
-              No text generation providers available.
+              No agent can write in the background yet.
             </span>
           ) : (
             <div className="flex flex-wrap items-center justify-end gap-1.5">
@@ -1767,7 +1764,7 @@ export function BackgroundWritingSettings() {
                   if (reason) {
                     toastManager.add({
                       type: "error",
-                      title: "Text generation model not saved",
+                      title: "Background writing model not saved",
                       description: reason,
                     });
                     return;

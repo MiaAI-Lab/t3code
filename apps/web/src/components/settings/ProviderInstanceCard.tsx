@@ -1316,8 +1316,8 @@ export function ProviderInstanceCard({
         />
         {inferenceServerOptions.length > 0 ? (
           <SettingsRow
-            title="Inference server"
-            description="The registered server this instance's models run on. Manage servers in Settings, Inference."
+            title="Model server"
+            description="The server this agent's models run on. Manage servers under Models & agents, Model servers."
             control={
               <div className="w-full @min-[32rem]/settings-row:w-48">
                 <Select
@@ -1327,7 +1327,7 @@ export function ProviderInstanceCard({
                     if (typeof value === "string") updateInferenceServer(value);
                   }}
                 >
-                  <SelectTrigger size="sm" className="w-full min-w-0" aria-label="Inference server">
+                  <SelectTrigger size="sm" className="w-full min-w-0" aria-label="Model server">
                     <SelectValue>
                       {inferenceServerOptions.find(
                         (option) => option.id === selectedInferenceServer,
@@ -1352,12 +1352,12 @@ export function ProviderInstanceCard({
             title={
               <span className="flex items-center gap-1.5">
                 <AlertTriangleIcon className="size-3.5 shrink-0 text-warning" aria-hidden />
-                Inference server unavailable
+                Model server unavailable
               </span>
             }
             description={
               inferenceLink.kind === "disabled"
-                ? `${inferenceLink.name} is disabled in Settings, Inference. Enable it or pick another server.`
+                ? `${inferenceLink.name} is turned off under Models & agents, Model servers. Turn it on or pick another server.`
                 : `The linked server ${inferenceLink.id} is no longer registered. Pick another server or None.`
             }
           />

@@ -13,7 +13,7 @@ default and the core of the app.
 - **Runs local models**: mark a provider instance as local. Local instances come first in the
   model picker and provider lists, and new threads default to them.
 - **Background writing stays local**: thread titles, commit messages, PR text, branch names and
-  voice cleanup use a local model. **Text generation fallback** defaults to **Local models only**,
+  voice cleanup use a local model. **Background writing fallback** defaults to **Local models only**,
   so your diffs never move to a cloud provider on their own, even before any local model is set up.
 - **Local is never priced**: local models show **Local** instead of a cloud price and never add to
   the cost total.

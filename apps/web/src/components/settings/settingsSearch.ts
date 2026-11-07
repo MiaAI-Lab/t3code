@@ -455,9 +455,9 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "project-grouping",
-    title: "Project grouping",
+    title: "Combine projects across computers",
     to: "/settings/general",
-    searchTerms: ["combine matching repositories environments sidebar"],
+    searchTerms: ["project grouping combine matching repositories environments sidebar"],
   },
   {
     id: "project-order",
@@ -630,9 +630,9 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "auto-settle-inactive-threads",
-    title: "Auto-settle inactive threads",
+    title: "Settle inactive threads",
     to: "/settings/threads",
-    searchTerms: ["sidebar inactivity days no activity automatically"],
+    searchTerms: ["auto-settle sidebar inactivity days no activity automatically"],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },
@@ -645,9 +645,9 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "auto-settle-merged-threads",
-    title: "Auto-settle merged threads",
+    title: "Settle merged threads",
     to: "/settings/threads",
-    searchTerms: ["pull request merge closed automatically sidebar"],
+    searchTerms: ["auto-settle pull request merge closed automatically sidebar"],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },
@@ -662,10 +662,10 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "days-before-auto-settle",
-    title: "Days of inactivity before auto-settle",
+    title: "Days of inactivity before settling",
     to: "/settings/threads",
     targetId: "auto-settle-inactive-threads",
-    searchTerms: ["thread timeout activity sidebar"],
+    searchTerms: ["auto-settle thread timeout activity sidebar"],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },
@@ -831,17 +831,21 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "text-generation-model",
-    title: "Text generation model",
+    title: "Background writing model",
     to: "/settings/models",
     scope: "project-defaults",
-    searchTerms: ["generated thread titles source control content default provider"],
+    searchTerms: [
+      "text generation model generated thread titles source control content default provider",
+    ],
   },
   {
     id: "text-generation-fallback",
-    title: "Text generation fallback",
+    title: "Background writing fallback",
     to: "/settings/models",
     scope: "environment",
-    searchTerms: ["local models only cloud privacy background writing titles commit messages"],
+    searchTerms: [
+      "text generation fallback local models only cloud privacy background writing titles commit messages",
+    ],
   },
   {
     id: "thread-title-instructions",
@@ -969,7 +973,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "inference-servers",
-    title: "Inference servers",
+    title: "Model servers",
     to: "/settings/inference",
     searchTerms: [
       "local models self-hosted model server gpu ollama lm studio llama.cpp vllm sglang openai compatible base url api key context window concurrency load queue",
@@ -1309,9 +1313,11 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "remote-environments",
-    title: "Environments",
+    title: "Computers",
     to: "/settings/connections",
-    searchTerms: ["add pair backend host code ssh config agent tunnel saved t3 connect"],
+    searchTerms: [
+      "environments add pair backend host code ssh config agent tunnel saved t3 connect",
+    ],
   },
   {
     id: "load-balancing",

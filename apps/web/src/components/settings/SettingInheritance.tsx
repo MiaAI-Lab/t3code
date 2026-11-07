@@ -53,7 +53,7 @@ function formatValue(key: keyof ServerSettings, value: unknown): string {
         : key === "defaultModelSelection"
           ? "Automatic"
           : key === "sourceControlWriterModelSelection"
-            ? "Text generation model"
+            ? "Background writing model"
             : key === "reviewGuideModelSelection"
               ? "Source control writer model"
               : key === "defaultThreadEnvMode" || key === "worktreeSubmodules"

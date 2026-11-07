@@ -125,7 +125,7 @@ export function FindInferenceServerDialog({
       description:
         snapshot?.status === "ready"
           ? "Threads already running keep the old address until their agent session restarts."
-          : (snapshot?.message ?? "Check its address in Settings, Inference."),
+          : (snapshot?.message ?? "Check its address under Models & agents, Model servers."),
     });
     onClose();
   };

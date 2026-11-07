@@ -56,7 +56,7 @@ find it ready, or connecting to it failed, and only if the fallback serves the s
 not for overflow: while the first server is up, requests wait in its queue even when the fallback
 is idle. A request that already started is never moved.
 
-Then link a provider instance to a server with the **Inference server** setting on its card in
+Then link a provider instance to a server with the **Model server** setting on its card in
 **Settings → Models & agents → Agents**. A linked instance counts as local while its server is enabled, and the
 model picker shows the server's name and readiness next to the provider, such as `Pi · rtx ·
 Ready`. T3 Code also caps the context window it assumes for the instance at what the server
@@ -226,7 +226,7 @@ Marked instances:
 
 ## Background writing fallback
 
-**Settings → Models & agents → Models → Text generation fallback** decides where background writing
+**Settings → Models & agents → Models → Background writing fallback** decides where background writing
 goes when its model cannot run:
 
 - **Local models only** (default): another ready local instance, or an error. Your

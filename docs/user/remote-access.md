@@ -90,7 +90,7 @@ t3 pair
 
 Scan the QR code on your phone or paste the pairing URL into **Add environment**
 in the receiving app. Connection settings are under **Settings → Connections & sharing → Computers**
-on web and desktop and **Settings → Connections & sharing → Computers** on mobile. A loopback address
+on web and desktop and **Settings → Environments** on mobile. A loopback address
 such as `127.0.0.1` reaches only the device opening the link.
 
 On a computer with the desktop app, you can open the printed `t3code://pair`

@@ -32,7 +32,7 @@ export const PiSettings = makeProviderSettingsSchema(
     toolProfile: Schema.Literals(["auto", "full", "lean"]).pipe(
       Schema.withDecodingDefault(Effect.succeed("auto")),
       Schema.annotateKey({
-        title: "T3 tools",
+        title: "Tools for this agent",
         description:
           "Lean offers only orchestration, thread, project and worktree tools, which leaves more context for local models.",
         providerSettingsForm: {

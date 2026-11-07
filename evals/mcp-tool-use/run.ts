@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off
 /**
- * Replays small fake threads on a Claude or Codex model to check T3's MCP tool use. A trimmed
+ * Replays small fake threads on a Claude, Codex or Pi model to check T3's MCP tool use. A trimmed
  * harness capture supplies the prompt and native tools; a cheap model plays the shell. See
  * README.md for how to run it and add cases.
  */
@@ -45,6 +45,7 @@ import {
   PullRequestState,
   ThreadId,
 } from "@t3tools/contracts";
+import { T3_CODE_ORCHESTRATION_INSTRUCTIONS } from "@t3tools/provider-core/server/orchestrationInstructions";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import { buildCodexAdditionalContext } from "../../apps/server/src/provider/CodexDeveloperInstructions.ts";
@@ -69,6 +70,24 @@ import {
   makeClaudeQueryOptions,
 } from "../../apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts";
 import { proxyConfig } from "../shared/proxy.ts";
+import {
+  MCP_TOOL_PROFILES,
+  type McpToolProfile,
+  toolsForMcpProfile,
+} from "@t3tools/provider-core/server/mcpToolProfile";
+import {
+  chatMessages,
+  chatTool,
+  fromChatCompletion,
+  isOpenAiCompatible,
+  type OpenAiCompatibleModel,
+  PI_CWD,
+  PI_TOOL_NAMES,
+  piNativeTools,
+  piSystemPrompt,
+  type PiTemplate,
+  servedModel,
+} from "./pi.ts";
 import { changeRequestsCreatedBy } from "../../apps/server/src/orchestration-v2/PullRequestSyncReactor.ts";
 import { DeviceExpect, gradeDevice } from "./device-grading.ts";
 import {
@@ -93,10 +112,13 @@ const MODELS = {
   "gpt-6.1-sol": "GPT-6.1 Sol",
   "gpt-6-astra": "GPT-6 Astra",
 } as const;
-type Model = keyof typeof MODELS;
-/** GPT models replay a Codex capture through CLIProxyAPI, the rest a Claude Code capture. */
+type CloudModel = keyof typeof MODELS;
+/** `openai-compatible:<id>` replays a Pi capture against `--base-url`, such as a local GLM. */
+type Model = CloudModel | OpenAiCompatibleModel;
+/** GPT models replay a Codex capture through CLIProxyAPI, cloud ones a Claude Code capture. */
 const isCodex = (model: Model): model is Extract<Model, `gpt-${string}`> =>
   model.startsWith("gpt-");
+
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 // USD per million tokens. Cache writes use the 5-minute rate.
 const PRICES = {
@@ -107,8 +129,8 @@ const PRICES = {
 type PricedModel = keyof typeof PRICES;
 /** GPT models that can play the shell through CLIProxyAPI, when no Anthropic key is at hand. */
 const PROXY_SHELL_MODELS = ["gpt-6-luna", "gpt-6.1-terra"] as const;
-type ShellModel = PricedModel | (typeof PROXY_SHELL_MODELS)[number];
-const isPricedModel = (model: ShellModel): model is PricedModel => model in PRICES;
+type ShellModel = PricedModel | (typeof PROXY_SHELL_MODELS)[number] | OpenAiCompatibleModel;
+const isPricedModel = (model: string): model is PricedModel => model in PRICES;
 const T3_PREFIX = "mcp__t3-code__";
 const RUNTIME_MARKER = "<runtime_info>";
 const TOOL_LOADED = "Tool loaded.";
@@ -408,7 +430,7 @@ export const normalizeToolName = (name: string) => {
   const bare = name.slice(name.lastIndexOf(".") + 1);
   return isT3Name(bare)
     ? bare.slice(T3_PREFIX.length)
-    : (CODEX_NAMES[bare] ?? bare.slice(bare.lastIndexOf("_") + 1));
+    : (CODEX_NAMES[bare] ?? PI_TOOL_NAMES[bare] ?? bare.slice(bare.lastIndexOf("_") + 1));
 };
 export const normalizeToolInput = (name: string, input: unknown) => {
   const decode = t3InputDecoders.get(normalizeToolName(name));
@@ -481,18 +503,25 @@ const pastedSecret = (name: string, input: Readonly<Record<string, unknown>>) =>
 const hiddenFromSubagents = enabledWhen(McpInvocationContext.hiddenFromSubagents);
 // The Linked environments beta starts off, and T3 lists its tools only while it is on.
 const hiddenWhileLinksOff = enabledWhen(McpInvocationContext.hiddenWhileLinksOff);
-const visibleT3Tools = (options: { readonly subagent?: boolean; readonly links?: boolean }) =>
+/** T3 tools a session lists. `profile` filters them the way Pi's bridge does. */
+const visibleT3Tools = (options: {
+  readonly subagent?: boolean;
+  readonly links?: boolean;
+  readonly profile?: McpToolProfile;
+}) =>
   t3Tools.filter(
     (tool) =>
       (options.links === true || !hiddenWhileLinksOff.has(tool.name)) &&
-      !(options.subagent === true && hiddenFromSubagents.has(tool.name)),
+      !(options.subagent === true && hiddenFromSubagents.has(tool.name)) &&
+      toolsForMcpProfile([{ name: tool.name.slice(T3_PREFIX.length) }], options.profile ?? "full")
+        .length === 1,
   );
 
 /**
  * T3's Claude Code options for an eval thread: its system prompt append and its hooks. `device` says
  * whether the thread holds the `device` capability, as agent device access decides.
  */
-const claudeQueryOptions = (model: Model, device = true) => {
+const claudeQueryOptions = (model: CloudModel, device = true) => {
   // Refs whose device text follows the capability read deviceToolsAvailable; older ones ignore it.
   const input: Parameters<typeof makeClaudeQueryOptions>[0] & {
     readonly deviceToolsAvailable?: boolean;
@@ -508,7 +537,7 @@ const claudeQueryOptions = (model: Model, device = true) => {
 };
 
 /** Text T3 appends to Claude Code's system prompt. Delegated children get the same text. */
-export const t3SystemAppend = (model: Model, device = true) => {
+export const t3SystemAppend = (model: CloudModel, device = true) => {
   const { systemPrompt } = claudeQueryOptions(model, device);
   if (isRecord(systemPrompt) && systemPrompt.type === "preset" && systemPrompt.append) {
     return systemPrompt.append;
@@ -520,7 +549,7 @@ export const t3SystemAppend = (model: Model, device = true) => {
  * The context T3's SubagentStart hooks give a native subagent, which gets none of the append.
  * Empty when T3 registers no such hook.
  */
-export const t3SubagentContext = async (model: Model, device = true) => {
+export const t3SubagentContext = async (model: CloudModel, device = true) => {
   const hooks = (claudeQueryOptions(model, device).hooks?.SubagentStart ?? []).flatMap(
     (m) => m.hooks,
   );
@@ -550,14 +579,20 @@ export const t3SubagentContext = async (model: Model, device = true) => {
  * descriptions and schemas (loaded on demand here, sent up front by harnesses without
  * deferred tools). Tokens are estimated at 4 characters each.
  */
-const t3ContextReport = (model: Model) => {
+const t3ContextReport = (model: Model, profile: McpToolProfile = "full") => {
   const size = (chars: number) => `${chars} chars (~${Math.round(chars / 4)} tokens)`;
-  const descriptions = t3Tools.reduce((sum, tool) => sum + valueText(tool.description).length, 0);
-  const schemas = JSON.stringify(t3Tools).length;
+  const tools = visibleT3Tools({ links: true, profile });
+  const descriptions = tools.reduce((sum, tool) => sum + valueText(tool.description).length, 0);
+  const schemas = JSON.stringify(tools).length;
+  const system = isOpenAiCompatible(model)
+    ? T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim()
+    : isCodex(model)
+      ? JSON.stringify(buildCodexAdditionalContext({ model }, { browser: true, device: true }))
+      : t3SystemAppend(model);
   return [
-    `- T3 context: system text ${size((isCodex(model) ? JSON.stringify(buildCodexAdditionalContext({ model }, { browser: true, device: true })) : t3SystemAppend(model)).length)}`,
+    `- T3 context: system text ${size(system.length)}`,
     `tool descriptions ${size(descriptions)}`,
-    `full tool schemas ${size(schemas)} across ${t3Tools.length} tools.`,
+    `${profile} tool schemas ${size(schemas)} across ${tools.length} tools.`,
   ].join(", ");
 };
 
@@ -588,10 +623,11 @@ const NATIVE_SCHEMAS: Readonly<Record<string, Omit<ApiTool, "name">>> = {
 export const buildBase = (
   template: typeof MessagesRequest.Type,
   options: {
-    readonly model: Model;
+    readonly model: CloudModel;
     readonly keepUserInstructions: boolean;
     readonly subagent?: boolean;
     readonly links?: boolean;
+    readonly profile?: McpToolProfile;
     /** A native subagent starts from its task: T3 appends nothing to its system prompt. */
     readonly nativeSubagent?: boolean;
     /** false: the thread has no agent device access, so T3's text leaves devices out. */
@@ -669,8 +705,16 @@ export const buildBase = (
   };
 };
 
-type Base = ReturnType<typeof buildBase> & {
+type Base = Omit<ReturnType<typeof buildBase>, "model"> & {
+  readonly model: Model;
   readonly codex?: typeof ResponsesRequest.Type;
+  /** Pi's system prompt and the tools it declares, for an OpenAI-compatible model. */
+  readonly pi?: {
+    readonly system: string;
+    readonly role: string;
+    readonly tools: ReadonlyArray<ReturnType<typeof chatTool>>;
+    readonly effort: string | undefined;
+  };
   /** What T3's SubagentStart hooks give a native subagent. */
   readonly subagentContext?: string;
 };
@@ -684,6 +728,7 @@ const buildCodexBase = (
     readonly effort?: string | undefined;
     readonly subagent?: boolean;
     readonly links?: boolean;
+    readonly profile?: McpToolProfile;
     /** false: the thread has no agent device access, so T3's text leaves devices out. */
     readonly deviceAccess?: boolean;
   },
@@ -751,6 +796,54 @@ const buildCodexBase = (
     t3,
     deferred: [...t3],
     codex: { ...template, input, reasoning: { ...template.reasoning, effort } },
+  };
+};
+
+/** Pi declares builtins, the bridge's direct T3 tools, its tool_search, then the other T3 tools. */
+const PI_DIRECT_T3_TOOLS = ["orchestrator_capabilities", "delegate_task", "task_status"];
+const piToolOrder = (native: ReadonlyArray<ApiTool>, t3: ReadonlyArray<ApiTool>) => {
+  const direct = (tool: ApiTool) => PI_DIRECT_T3_TOOLS.includes(normalizeToolName(tool.name));
+  const search = (tool: ApiTool) => tool.name === "tool_search";
+  return [
+    ...native.filter((tool) => !search(tool)),
+    ...t3.filter(direct),
+    ...native.filter(search),
+    ...t3.filter((tool) => !direct(tool)),
+  ];
+};
+
+/**
+ * Pi's captured prompt and native tools, with T3's section and the profile's T3 tools from this
+ * checkout. Pi gets no device text from T3, so device access changes nothing here.
+ */
+const buildPiBase = (
+  template: PiTemplate,
+  options: {
+    readonly model: OpenAiCompatibleModel;
+    readonly effort?: string | undefined;
+    readonly subagent?: boolean;
+    readonly links?: boolean;
+    readonly profile?: McpToolProfile;
+  },
+): Base => {
+  const t3 = visibleT3Tools(options);
+  const native = piNativeTools(template);
+  const system = template.messages.find((m) => m.role === "developer" || m.role === "system");
+  return {
+    model: options.model,
+    system: [],
+    reminders: [],
+    gitStatusAt: 0,
+    environment: { cwd: PI_CWD, platform: "linux", date: undefined },
+    nativeTools: [...native, ...t3],
+    t3,
+    deferred: [],
+    pi: {
+      system: piSystemPrompt(template),
+      role: system?.role ?? "developer",
+      tools: piToolOrder(native, t3).map(chatTool),
+      effort: options.effort ?? template.reasoning_effort,
+    },
   };
 };
 
@@ -1044,6 +1137,16 @@ const PROVIDERS = [
   { providerInstanceId: "muse", models: ["muse-wonder-full", "muse-wonder"].map(codexModel) },
   { providerInstanceId: "grok", models: ["grok-4.7"].map(codexModel) },
 ];
+/** The instance and model the agent runs as, as T3 names them. */
+const inherited = (base: Base) =>
+  base.pi && isOpenAiCompatible(base.model)
+    ? { instance: "pi", model: servedModel(base.model) }
+    : { instance: base.codex ? "codex" : "claudeAgent", model: base.model };
+/** A Pi instance on the local server, offered beside the cloud providers. */
+const piProvider = (model: string) => ({
+  providerInstanceId: "pi",
+  models: [{ id: model, options: [{ id: "thinking", values: ["off", "low", "medium", "high"] }] }],
+});
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const DEFAULT_THREAD = {
   title: "Fix the flaky reconnect test",
@@ -1119,9 +1222,8 @@ export const t3Default = (
             ...newThread(request, isRecord(request) ? request.prompt : undefined),
             createdBy: "agent",
             creationSource: "mcp",
-            providerInstanceId:
-              target.providerInstanceId ?? (sample.base.codex ? "codex" : "claudeAgent"),
-            model: target.model ?? sample.base.model,
+            providerInstanceId: target.providerInstanceId ?? inherited(sample.base).instance,
+            model: target.model ?? inherited(sample.base).model,
           };
         }),
       };
@@ -1129,7 +1231,9 @@ export const t3Default = (
       return {
         inheritedProviderInstanceId: "claudeAgent",
         inheritedModel: sample.base.model,
-        providers: PROVIDERS,
+        providers: sample.base.pi
+          ? [piProvider(inherited(sample.base).model), ...PROVIDERS]
+          : PROVIDERS,
       };
     case "delegate_task": {
       const n = sample.nextTask++;
@@ -1141,9 +1245,8 @@ export const t3Default = (
         status: "running",
         workState: "working",
         hasPendingChildRuns: false,
-        providerInstanceId:
-          target.providerInstanceId ?? (sample.base.codex ? "codex" : "claudeAgent"),
-        model: target.model ?? sample.base.model,
+        providerInstanceId: target.providerInstanceId ?? inherited(sample.base).instance,
+        model: target.model ?? inherited(sample.base).model,
         summary: null,
         hasPendingQuestion: false,
         pendingApproval: null,
@@ -1333,13 +1436,18 @@ const capabilities = ({ base }: Sample, value: unknown) =>
   isRecord(value)
     ? {
         ...value,
-        inheritedModel: base.model,
+        inheritedModel: inherited(base).model,
         ...(base.codex
           ? {
               inheritedProviderInstanceId: "codex",
               inheritedOptions: [{ id: "reasoningEffort", value: base.codex.reasoning.effort }],
             }
-          : {}),
+          : base.pi
+            ? {
+                inheritedProviderInstanceId: "pi",
+                inheritedOptions: [{ id: "thinking", value: base.pi.effort ?? "medium" }],
+              }
+            : {}),
       }
     : value;
 
@@ -1478,6 +1586,24 @@ export const shellResponsesRequest = (body: ReturnType<typeof shellRequest>) => 
   })),
 });
 
+/** The same simulator request as a chat completion, for an OpenAI-compatible shell model. */
+export const shellChatRequest = (body: ReturnType<typeof shellRequest>, model: string) => ({
+  model,
+  max_tokens: body.max_tokens,
+  reasoning_effort: "low",
+  response_format: {
+    type: "json_schema",
+    json_schema: { name: "shell_reply", schema: SHELL_REPLY_SCHEMA, strict: true },
+  },
+  messages: [
+    { role: "system", content: body.system },
+    ...body.messages.map((message) => ({
+      role: message.role,
+      content: message.content.map((block) => block.text).join("\n\n"),
+    })),
+  ],
+});
+
 /** The tool output in the simulator's JSON reply, or its raw text if that is not JSON. */
 export const shellOutput = (content: ReadonlyArray<Block>) => {
   const reply = content.flatMap((block) => (isText(block) ? [block.text] : [])).join("");
@@ -1501,6 +1627,8 @@ type Config = {
   readonly effort: string;
   readonly maxSteps: number;
   readonly shellModel: ShellModel;
+  /** The OpenAI-compatible server for `openai-compatible:` agent and shell models. */
+  readonly baseUrl?: string | undefined;
 };
 
 /**
@@ -1521,10 +1649,13 @@ const simulate = Effect.fn("evaluateMcpToolUse.simulate")(function* (
   const command = call.tool === "Bash" && isRecord(call.input) ? call.input.command : undefined;
   let output = typeof command === "string" ? cannedOutput(sample, command) : undefined;
   if (output === undefined) {
-    const body = shellRequest(sample, call, config.shellModel);
-    const response = isPricedModel(config.shellModel)
-      ? yield* callModel(config.apiKey, body, config.apiKey ? undefined : config.proxy)
-      : yield* callCodex(config, shellResponsesRequest(body));
+    const shellModel = config.shellModel;
+    const body = shellRequest(sample, call, shellModel);
+    const response = isOpenAiCompatible(shellModel)
+      ? yield* callChat(config, shellChatRequest(body, servedModel(shellModel)))
+      : isPricedModel(shellModel)
+        ? yield* callModel(config.apiKey, body, config.apiKey ? undefined : config.proxy)
+        : yield* callCodex(config, shellResponsesRequest(body));
     addUsage(sample.shellUsage, response.usage);
     output = shellOutput(response.content);
   }
@@ -1560,6 +1691,9 @@ export const answerToolCall = Effect.fn("evaluateMcpToolUse.answerToolCall")(fun
         : input;
   }
   const failed = (error: string): Block => ({ ...toolResult(call.id, error), is_error: true });
+  if (base.pi && !hasTool(tools, call.name)) {
+    return failed(`Tool ${call.name} not found`);
+  }
   if (!base.codex && !hasTool(tools, call.name)) {
     const error = `InputValidationError: ${call.name} is deferred. Load it with ToolSearch first.`;
     return failed(`<tool_use_error>${error}</tool_use_error>`);
@@ -1805,6 +1939,15 @@ const codexRequest = (base: Base, input: ReadonlyArray<Block>) => ({
   input: [...(base.codex?.input ?? []), ...input],
 });
 
+/** Pi's chat completion request: its system prompt, then the transcript, with every tool declared. */
+const piRequest = (base: Base, effort: string, messages: ReadonlyArray<ApiMessage>) => ({
+  model: isOpenAiCompatible(base.model) ? servedModel(base.model) : base.model,
+  messages: [{ role: base.pi?.role, content: base.pi?.system }, ...chatMessages(messages)],
+  tools: base.pi?.tools,
+  max_completion_tokens: 32_000,
+  reasoning_effort: effort,
+});
+
 /** The bridge only accepts serialized data. Model code never receives host objects/functions. */
 export const executeCodex = async (
   code: string,
@@ -1956,6 +2099,29 @@ const postModel = Effect.fn("evaluateMcpToolUse.postModel")(function* (
   }
   return yield* response.text;
 });
+const decodeChatJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown));
+/** One chat completion from the OpenAI-compatible server, retried while it is busy or down. */
+const callChat = Effect.fn("evaluateMcpToolUse.callChat")(function* (
+  config: Config,
+  body: unknown,
+) {
+  if (config.baseUrl === undefined) {
+    return yield* Effect.die(new Error("openai-compatible: models need --base-url."));
+  }
+  const client = (yield* HttpClient.HttpClient).pipe(
+    HttpClient.retryTransient({ retryOn: "errors-and-responses", schedule: RETRY, times: 8 }),
+  );
+  const response = yield* HttpClientRequest.post(`${config.baseUrl}/chat/completions`).pipe(
+    HttpClientRequest.bodyJson(body),
+    Effect.flatMap(client.execute),
+  );
+  const raw = yield* response.text;
+  if (response.status !== 200) {
+    return yield* Effect.die(new Error(`Model API ${response.status}: ${raw}`));
+  }
+  return fromChatCompletion(yield* decodeChatJson(raw));
+});
+
 const callModel = (apiKey: string, body: unknown, proxy?: Config["proxy"]) =>
   postModel(apiKey, body, proxy).pipe(
     Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(ApiResponse))),
@@ -2019,14 +2185,17 @@ const runSample = Effect.fn("evaluateMcpToolUse.runSample")(function* (
   const extra = isCodex(config.model) ? 4 : 0;
   const maxSteps = testCase.maxSteps === undefined ? config.maxSteps : testCase.maxSteps + extra;
   for (let step = 0; step < maxSteps; step++) {
-    const response = input
-      ? yield* callCodex(config, codexRequest(base, input))
-      : yield* callModel(config.apiKey, requestBody(sample, config.effort, messages));
-    addUsage(usage, response.usage);
-    if ("raw" in response) {
-      input?.push(...response.raw);
-      transcript.push(...response.raw);
+    const codexResponse = input ? yield* callCodex(config, codexRequest(base, input)) : undefined;
+    if (input && codexResponse) {
+      input.push(...codexResponse.raw);
+      transcript.push(...codexResponse.raw);
     }
+    const response =
+      codexResponse ??
+      (base.pi
+        ? yield* callChat(config, piRequest(base, config.effort, messages))
+        : yield* callModel(config.apiKey, requestBody(sample, config.effort, messages)));
+    addUsage(usage, response.usage);
     messages.push({ role: "assistant", content: response.content });
     const texts = response.content.filter(isText).map((block) => block.text);
     said.push(...texts);
@@ -2159,7 +2328,7 @@ const groups = <A>(rows: ReadonlyArray<A>, key: (row: A) => string) =>
 
 const USAGE_KEYS = ["input", "output", "cacheWrite", "cacheRead"] as const;
 /** Token totals and their cost in USD at one model's prices. Proxy runs have no price. */
-const spend = (usages: ReadonlyArray<Usage>, model: ShellModel | undefined) => {
+const spend = (usages: ReadonlyArray<Usage>, model: string | undefined) => {
   const total = (key: keyof Usage) => usages.reduce((sum, usage) => sum + usage[key], 0);
   const price = (key: keyof Usage) => (model && isPricedModel(model) ? PRICES[model][key] : 0);
   const cost = USAGE_KEYS.reduce((sum, key) => sum + total(key) * price(key), 0) / 1e6;
@@ -2173,6 +2342,7 @@ export const summarize = (
   before?: Map<string, number>,
 ) => {
   const codex = isCodex(options.model);
+  const local = isOpenAiCompatible(options.model);
   const agent = spend(
     rows.map((row) => row.usage),
     codex ? undefined : options.model,
@@ -2213,16 +2383,22 @@ export const summarize = (
     `- ${options.header}`,
     `- Pass: ${percent(passRate(rows))} of ${finished} samples.`,
     ...(errors.length > 0 ? [errorNote] : []),
-    codex
-      ? "- Cost: the agent is not priced. `vibeproxy` in `~/.codex/config.toml` may use a subscription or bill an API key per token; agent tokens are below."
-      : `- Estimated cost $${cost.toFixed(2)}, $${(cost / rows.length).toFixed(3)} per sample.`,
-    `- Agent tokens: ${agent.tokens}${codex ? "." : ` ($${agent.cost.toFixed(2)}).`}`,
+    local
+      ? "- Cost: the agent runs on an OpenAI-compatible server and is not priced."
+      : codex
+        ? "- Cost: the agent is not priced. `vibeproxy` in `~/.codex/config.toml` may use a subscription or bill an API key per token; agent tokens are below."
+        : `- Estimated cost $${cost.toFixed(2)}, $${(cost / rows.length).toFixed(3)} per sample.`,
+    `- Agent tokens: ${agent.tokens}${codex || local ? "." : ` ($${agent.cost.toFixed(2)}).`}`,
     `- Shell simulator (${options.shellModel}) tokens: ${shell.tokens} (API-price estimate $${shell.cost.toFixed(2)}).`,
-    ...(codex
+    ...(local
       ? [
-          "- Code-mode tools use case mocks and a simulated machine. Native subagent prompts and asynchronous notifications are approximate.",
+          "- Pi's captured prompt and native tools, with T3's section and the tool profile's T3 tools from this checkout, all declared directly as the bridge does for openai-completions models.",
         ]
-      : [identityNote]),
+      : codex
+        ? [
+            "- Code-mode tools use case mocks and a simulated machine. Native subagent prompts and asynchronous notifications are approximate.",
+          ]
+        : [identityNote]),
     ...(rows.some((row) => row.role === "native-subagent") ? [nativeNote] : []),
     "",
     ...table("Cases", (row) => row.id, before !== undefined),
@@ -2236,8 +2412,14 @@ const PositiveIntOrZero = Schema.FiniteFromString.check(
   Schema.isInt(),
   Schema.isGreaterThanOrEqualTo(0),
 );
+const OpenAiCompatibleModelFlag = Schema.TemplateLiteral(["openai-compatible:", Schema.String]);
 const Flags = Schema.Struct({
-  model: Schema.Literals(Object.keys(MODELS) as Array<Model>),
+  model: Schema.Union([
+    Schema.Literals(Object.keys(MODELS) as Array<CloudModel>),
+    OpenAiCompatibleModelFlag,
+  ]),
+  "base-url": Schema.optional(Schema.String),
+  "tool-profile": Schema.Literals(MCP_TOOL_PROFILES),
   template: Schema.String,
   cases: Schema.optional(Schema.Array(Schema.String)),
   out: Schema.optional(Schema.String),
@@ -2247,9 +2429,9 @@ const Flags = Schema.Struct({
   concurrency: PositiveInt,
   "max-steps": Schema.optional(PositiveInt),
   effort: Schema.optional(Schema.Literals(EFFORTS)),
-  "shell-model": Schema.Literals([
-    ...(Object.keys(PRICES) as Array<PricedModel>),
-    ...PROXY_SHELL_MODELS,
+  "shell-model": Schema.Union([
+    Schema.Literals([...(Object.keys(PRICES) as Array<PricedModel>), ...PROXY_SHELL_MODELS]),
+    OpenAiCompatibleModelFlag,
   ]),
   "user-instructions": Schema.Literals(["keep", "drop"]),
   "dry-run": Schema.Boolean,
@@ -2260,6 +2442,25 @@ const Flags = Schema.Struct({
 const decodeFlags = Schema.decodeUnknownEffect(Flags);
 const decodeCapture = Schema.decodeUnknownEffect(Schema.fromJsonString(Capture));
 const decodeCodexCapture = Schema.decodeUnknownEffect(Schema.fromJsonString(CodexCapture));
+const PiCapture = Schema.Struct({
+  request: Schema.Struct({
+    provider_native: Schema.Struct({
+      messages: Schema.Array(Schema.Struct({ role: Schema.String, content: Schema.Unknown })),
+      tools: Schema.Array(
+        Schema.Struct({
+          type: Schema.Literal("function"),
+          function: Schema.Struct({
+            name: Schema.String,
+            description: Schema.optional(Schema.String),
+            parameters: Schema.optional(Schema.Unknown),
+          }),
+        }),
+      ),
+      reasoning_effort: Schema.optional(Schema.String),
+    }),
+  }),
+});
+const decodePiCapture = Schema.decodeUnknownEffect(Schema.fromJsonString(PiCapture));
 const decodeCase = Schema.decodeUnknownEffect(Schema.fromJsonString(McpToolUseCase));
 const decodeBaselineRow = Schema.decodeUnknownEffect(
   Schema.fromJsonString(
@@ -2277,6 +2478,10 @@ const main = Effect.gen(function* () {
   const { values } = NodeUtil.parseArgs({
     options: {
       model: { ...string, default: "claude-sonnet-5-5" },
+      // The OpenAI-compatible server for openai-compatible:<id> agent and shell models.
+      "base-url": string,
+      // Which T3 tools the agent sees: lean filters them the way Pi's bridge does.
+      "tool-profile": { ...string, default: "full" },
       template: string,
       cases: { ...string, multiple: true },
       out: string,
@@ -2301,7 +2506,7 @@ const main = Effect.gen(function* () {
   });
   const flags = yield* decodeFlags({ template: "", ...values });
   if (flags.context) {
-    process.stdout.write(`${t3ContextReport(flags.model)}\n`);
+    process.stdout.write(`${t3ContextReport(flags.model, flags["tool-profile"])}\n`);
     return;
   }
   if (flags["stop-on-regression"] && flags.baseline === undefined) {
@@ -2324,12 +2529,35 @@ const main = Effect.gen(function* () {
   const cases = (yield* Effect.forEach(caseFiles, (file) => readNdjson(file, decodeCase))).flat();
   const wanted = flags.case?.flatMap((ids) => ids.split(","));
   const codex = isCodex(flags.model);
-  const harness = codex ? "codex" : "claude";
+  const pi = isOpenAiCompatible(flags.model);
+  const harness = codex ? "codex" : pi ? "pi" : "claude";
+  const profile = flags["tool-profile"];
+  // A prior call to a tool the profile leaves out could not have happened in that session.
+  const priorToolsListed = ({ setup }: McpToolUseCase) =>
+    (setup.priorTurns ?? []).every((turn) =>
+      (turn.toolCalls ?? []).every(
+        (call) =>
+          !t3Tools.some((tool) => normalizeToolName(tool.name) === call.tool) ||
+          toolsForMcpProfile([{ name: call.tool }], profile).length === 1,
+      ),
+    );
   const selectedCases = cases.filter(
-    ({ id, setup }) =>
-      (wanted === undefined || wanted.includes(id)) &&
-      (setup.harness === undefined || setup.harness === harness),
+    (testCase) =>
+      (wanted === undefined || wanted.includes(testCase.id)) &&
+      (testCase.setup.harness === undefined || testCase.setup.harness === harness) &&
+      // Pi has no native subagents.
+      !(pi && testCase.setup.role === "native-subagent") &&
+      priorToolsListed(testCase),
   );
+  const skipped = cases.filter(
+    (testCase) =>
+      (wanted === undefined || wanted.includes(testCase.id)) && !selectedCases.includes(testCase),
+  );
+  if (skipped.length > 0) {
+    yield* Effect.log(
+      `Skipped for this harness or tool profile: ${skipped.map(({ id }) => id).join(", ")}`,
+    );
+  }
   if (selectedCases.length === 0) return yield* Effect.die(new Error("No case matches --case."));
   const selected = yield* Effect.forEach(selectedCases, (testCase) =>
     Effect.gen(function* () {
@@ -2357,48 +2585,64 @@ const main = Effect.gen(function* () {
   // Trimmed captures without user data ship beside the cases. `--template` also takes a raw
   // CLIProxyAPI capture.
   const templatePath =
-    flags.template ||
-    path.join(import.meta.dirname, "templates", codex ? "codex.json.gz" : "claude.json.gz");
+    flags.template || path.join(import.meta.dirname, "templates", `${harness}.json.gz`);
   const templateBytes = yield* fs.readFile(templatePath);
   const template = new TextDecoder().decode(
     templatePath.endsWith(".gz") ? NodeZlib.gunzipSync(templateBytes) : templateBytes,
   );
   const keepUserInstructions = flags["user-instructions"] === "keep";
+  const buildPiFor = (model: OpenAiCompatibleModel, role: string, links: boolean) =>
+    decodePiCapture(template).pipe(
+      Effect.map((capture) =>
+        buildPiBase(capture.request.provider_native, {
+          model,
+          effort: flags.effort,
+          subagent: role === "delegated-child",
+          links,
+          profile,
+        }),
+      ),
+    );
   const buildFor = (
     role: McpToolUseCase["setup"]["role"],
     deviceAccess: boolean,
     links: boolean,
   ): Effect.Effect<Base, Schema.SchemaError> =>
-    codex
-      ? decodeCodexCapture(template).pipe(
-          Effect.map((capture) =>
-            buildCodexBase(capture.request.provider_native, {
-              model: flags.model,
-              keepUserInstructions,
-              effort: flags.effort,
-              subagent: role === "delegated-child",
-              links,
-              deviceAccess,
+    isOpenAiCompatible(flags.model)
+      ? buildPiFor(flags.model, role, links)
+      : codex
+        ? decodeCodexCapture(template).pipe(
+            Effect.map((capture) =>
+              buildCodexBase(capture.request.provider_native, {
+                model: flags.model,
+                keepUserInstructions,
+                effort: flags.effort,
+                subagent: role === "delegated-child",
+                links,
+                profile,
+                deviceAccess,
+              }),
+            ),
+          )
+        : decodeCapture(template).pipe(
+            Effect.flatMap((capture) => {
+              const model = flags.model as CloudModel;
+              const built: Base = buildBase(capture.request.provider_native, {
+                model,
+                keepUserInstructions,
+                subagent: role === "delegated-child",
+                nativeSubagent: role === "native-subagent",
+                links,
+                profile,
+                deviceAccess,
+              });
+              return role === "native-subagent"
+                ? Effect.promise(() => t3SubagentContext(model, deviceAccess)).pipe(
+                    Effect.map((subagentContext): Base => ({ ...built, subagentContext })),
+                  )
+                : Effect.succeed(built);
             }),
-          ),
-        )
-      : decodeCapture(template).pipe(
-          Effect.flatMap((capture) => {
-            const built = buildBase(capture.request.provider_native, {
-              model: flags.model,
-              keepUserInstructions,
-              subagent: role === "delegated-child",
-              nativeSubagent: role === "native-subagent",
-              links,
-              deviceAccess,
-            });
-            return role === "native-subagent"
-              ? Effect.promise(() => t3SubagentContext(flags.model, deviceAccess)).pipe(
-                  Effect.map((subagentContext): Base => ({ ...built, subagentContext })),
-                )
-              : Effect.succeed(built);
-          }),
-        );
+          );
   // Codex has no native subagents; its cases with that role run as top-level threads.
   const baseKey = ({ setup }: McpToolUseCase) =>
     `${codex && setup.role === "native-subagent" ? "top" : setup.role}:${setup.world?.deviceAgentAccess !== false}:${setup.linkedEnvironments === true}`;
@@ -2415,7 +2659,7 @@ const main = Effect.gen(function* () {
     bases.set(key, yield* buildFor(role, access === "true", links === "true"));
   }
   const baseFor = (testCase: McpToolUseCase) => bases.get(baseKey(testCase)) ?? base;
-  const effort = flags.effort ?? base.codex?.reasoning.effort ?? "high";
+  const effort = flags.effort ?? base.codex?.reasoning.effort ?? base.pi?.effort ?? "high";
   if (flags["dry-run"]) {
     // One JSON line per case. Without --case this also checks that every case builds.
     for (const testCase of selected) {
@@ -2424,14 +2668,17 @@ const main = Effect.gen(function* () {
       const messages = buildMessages(sample);
       const body = sample.base.codex
         ? codexRequest(sample.base, codexMessages(messages))
-        : requestBody(sample, effort, messages);
+        : sample.base.pi
+          ? piRequest(sample.base, effort, messages)
+          : requestBody(sample, effort, messages);
       process.stdout.write(`${yield* encodeJson(body)}\n`);
     }
     return;
   }
   const apiKey = yield* Config.String("ANTHROPIC_API_KEY").pipe(Config.withDefault(""));
   const out = flags.out;
-  if ((!apiKey && !codex) || out === undefined) {
+  const anthropicShell = isPricedModel(flags["shell-model"]);
+  if ((!apiKey && !codex && !(pi && !anthropicShell)) || out === undefined) {
     const message =
       "Set ANTHROPIC_API_KEY and pass --out <directory>. ANTHROPIC_AUTH_TOKEN and ANTHROPIC_BASE_URL are never used.";
     return yield* Effect.die(new Error(message));
@@ -2439,10 +2686,13 @@ const main = Effect.gen(function* () {
   const config: Config = {
     apiKey,
     model: flags.model,
-    ...(codex || !isPricedModel(flags["shell-model"]) ? { proxy: proxyConfig() } : {}),
+    ...((codex || !anthropicShell) && !isOpenAiCompatible(flags["shell-model"])
+      ? { proxy: proxyConfig() }
+      : {}),
     effort,
     maxSteps: flags["max-steps"] ?? (codex ? 10 : 6),
     shellModel: flags["shell-model"],
+    baseUrl: flags["base-url"]?.replace(/\/+$/, ""),
   };
   const previous =
     flags.baseline === undefined ? [] : yield* readNdjson(flags.baseline, decodeBaselineRow);
@@ -2537,7 +2787,7 @@ const main = Effect.gen(function* () {
     { concurrency: flags.concurrency, discard: true },
   ).pipe(Effect.ignore);
   const samples = flags.samples === undefined ? "2-3 (adaptive)" : flags.samples;
-  const header = `Commit \`${commit}\`, ${flags.model} at ${effort} effort, user instructions ${flags["user-instructions"]}, ${samples} samples per case, template \`${path.basename(templatePath)}\``;
+  const header = `Commit \`${commit}\`, ${flags.model} at ${effort} effort, ${profile} tool profile, user instructions ${flags["user-instructions"]}, ${samples} samples per case, template \`${path.basename(templatePath)}\``;
   const finished = new Set(rows.map((row) => row.id)).size;
   const stopped =
     regressions.length === 0
@@ -2548,7 +2798,7 @@ const main = Effect.gen(function* () {
   const summary = summarize(
     rows,
     {
-      header: [header, t3ContextReport(flags.model), ...stopped].join("\n"),
+      header: [header, t3ContextReport(flags.model, profile), ...stopped].join("\n"),
       shellModel: config.shellModel,
       model: config.model,
     },

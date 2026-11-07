@@ -5,6 +5,7 @@ import type {
   AcpRegistryListProvidersResult,
   AcpRegistryOperationError,
   AcpRegistrySetProviderInput,
+  InferenceServerId,
   ProviderDriverKind,
   ResolvedProviderInstanceEnvironment,
   ProviderInstanceId,
@@ -99,6 +100,8 @@ export interface ProviderDriverCreateInput<Config> {
   readonly environment: ResolvedProviderInstanceEnvironment;
   readonly enabled: boolean;
   readonly config: Config;
+  /** The enabled inference server this instance is linked to; unset when unlinked or disabled. */
+  readonly inferenceServerId?: InferenceServerId | undefined;
 }
 
 /** create calls with different instanceId/config must share no mutable state. */

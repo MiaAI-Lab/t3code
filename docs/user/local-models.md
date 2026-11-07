@@ -42,7 +42,8 @@ Add your server as a provider in `~/.pi/agent/models.json`:
 
 Set it as Pi's default with `defaultProvider` and `defaultModel` in
 `~/.pi/agent/settings.json`, enable Pi in **Settings → Providers**, and refresh
-it. See [Pi](./providers-pi.md).
+it. See [Pi](./providers-pi.md). A Pi instance linked to an inference server offers Pi a lean set
+of T3 tools by default; see [T3 Tools](./providers-pi.md#t3-tools).
 
 ### OpenCode
 

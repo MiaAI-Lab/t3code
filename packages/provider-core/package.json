@@ -83,6 +83,10 @@
       "types": "./src/server/mcpToolPresentation.ts",
       "import": "./src/server/mcpToolPresentation.ts"
     },
+    "./server/mcpToolProfile": {
+      "types": "./src/server/mcpToolProfile.ts",
+      "import": "./src/server/mcpToolProfile.ts"
+    },
     "./server/ModelCatalog": {
       "types": "./src/server/ModelCatalog.ts",
       "import": "./src/server/ModelCatalog.ts"

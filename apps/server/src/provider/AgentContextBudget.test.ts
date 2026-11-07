@@ -3,6 +3,10 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { ProviderInstanceId } from "@t3tools/contracts";
 import { McpProviderSessions } from "@t3tools/provider-core/server/McpProviderSessions";
+import {
+  LEAN_MCP_TOOL_NAMES,
+  mcpToolListJsonBytes,
+} from "@t3tools/provider-core/server/mcpToolProfile";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { McpServer } from "effect/ai";
@@ -132,15 +136,15 @@ it.effect("agent context matches the committed budget", () =>
     const measured = {
       claudeSystemAppendBytes: utf8Bytes(claudeSystemAppend()),
       codexAdditionalContextBytes: utf8Bytes(codexAdditionalContext()),
-      // The model sees these fields. outputSchema and annotations are protocol metadata.
-      mcpToolListJsonBytes: utf8Bytes(
-        JSON.stringify(
-          mcp.tools.map(({ tool }) => ({
-            name: tool.name,
-            description: tool.description,
-            inputSchema: tool.inputSchema,
-          })),
-        ),
+      // The model sees name, description and inputSchema; the rest is protocol metadata.
+      mcpToolListJsonBytes: mcpToolListJsonBytes(
+        mcp.tools.map(({ tool }) => tool),
+        "full",
+      ),
+      // What a Pi session with the lean tool profile advertises.
+      mcpLeanToolListJsonBytes: mcpToolListJsonBytes(
+        mcp.tools.map(({ tool }) => tool),
+        "lean",
       ),
     };
 
@@ -148,5 +152,13 @@ it.effect("agent context matches the committed budget", () =>
       measured,
       "Set agentContextBudget.json to the measured values. Before you cut text to fit, run the evals that cover it (evals/README.md).",
     ).toEqual(budget);
+  }).pipe(Effect.provide(layerAdvertisedTools)),
+);
+
+it.effect("every lean profile tool is one T3 advertises", () =>
+  Effect.gen(function* () {
+    const mcp = yield* McpServer.McpServer;
+    const advertised = new Set(mcp.tools.map(({ tool }) => tool.name));
+    expect(LEAN_MCP_TOOL_NAMES.filter((name) => !advertised.has(name))).toEqual([]);
   }).pipe(Effect.provide(layerAdvertisedTools)),
 );

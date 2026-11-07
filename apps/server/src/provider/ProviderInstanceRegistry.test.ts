@@ -1072,4 +1072,26 @@ describe("ProviderInstanceRegistry inference mark", () => {
       expect("inference" in unmarked).toBe(false);
     }).pipe(Effect.scoped, Effect.provide(Layer.mock(SecretResolver.SecretResolver)({}))),
   );
+
+  it.effect("tells the driver its inference server only while hydration marks the link local", () =>
+    Effect.gen(function* () {
+      const created: Array<string | undefined> = [];
+      const recording: AnyProviderDriver = {
+        ...driver,
+        create: (input) => {
+          created.push(input.inferenceServerId);
+          return driver.create(input);
+        },
+      };
+      const rtx = InferenceServerId.make("rtx");
+      const { mutator } = yield* makeProviderInstanceRegistry({
+        drivers: [recording],
+        configMap: { [instanceId]: { driver: driverKind, inferenceServerId: rtx } },
+      });
+      yield* mutator.reconcile({
+        [instanceId]: { driver: driverKind, inferenceServerId: rtx, inference: "local" },
+      });
+      expect(created).toEqual([undefined, rtx]);
+    }).pipe(Effect.scoped, Effect.provide(Layer.mock(SecretResolver.SecretResolver)({}))),
+  );
 });

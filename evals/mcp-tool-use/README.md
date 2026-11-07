@@ -1,6 +1,6 @@
 # MCP tool use
 
-Replays small fake threads on Claude and Codex models and checks how they use T3's MCP tools: delegation, PR linking, previews, scheduling, and more. Each case reproduces a real mistake an agent made in T3 Code.
+Replays small fake threads on Claude, Codex and Pi models and checks how they use T3's MCP tools: delegation, PR linking, previews, scheduling, and more. Each case reproduces a real mistake an agent made in T3 Code.
 
 The model sees what it sees in T3 Code. A trimmed capture of a real harness turn supplies the harness prompt and native tools. T3's instructions, tool descriptions, and schemas come from this checkout. A cheap model plays the shell, so nothing runs on your machine.
 
@@ -16,6 +16,8 @@ pnpm mcp-tool-use --model claude-opus-5-5 --out runs/opus
 - Codex models (`gpt-*` in `MODELS` in `run.ts`) go through a CLIProxyAPI server, set up as the `vibeproxy` model provider in `~/.codex/config.toml`. Keep the proxy under about 12 samples in flight across all runs.
 - `--shell-model` picks the model that plays the shell: `claude-haiku-5-5` by default, or `gpt-6.1-terra` / `gpt-6-luna` through the same proxy, so Codex runs need no Anthropic key. Prefer Terra: Luna often contradicts the case's world (it calls named checkouts missing or files empty). Compare runs only when they used the same shell model.
 - Flags: `--case <ids>`, `--cases <file.ndjson>`, `--samples <n>` (default 2, and a 3rd when the first 2 disagree), `--concurrency <n>` (samples in flight, default 8), `--max-steps <n>`, `--effort <level>`, `--dry-run` (prints request bodies, no model calls), and `--context` (prints the size of T3's text and schemas, no key needed).
+- Pi runs against an OpenAI-compatible server, such as a local model: `--model openai-compatible:<model id> --base-url http://localhost:8888/v1`. `--shell-model openai-compatible:<model id>` lets the same server play the shell, so the run needs no key and costs nothing. Pi's prompt and native tools come from `templates/pi.json.gz`; T3's section and tools come from this checkout, all declared directly as the bridge does for `openai-completions` models. Pi has no native subagents, so `native-subagent` cases are skipped. Keep a local GPU at about 2 samples in flight per server.
+- `--tool-profile lean` advertises only the lean tools, filtered the way Pi's bridge filters them (`packages/provider-core/src/server/mcpToolProfile.ts`). Cases whose prior turns call a tool the profile leaves out are skipped. Compare a lean run with a full run of the same cases, model and shell model.
 - `--baseline <results.jsonl> --stop-on-regression` stops as soon as a case that passed every baseline sample fails. Use it to test one copy change against a baseline run.
 - Cost: the existing non-device suite costs about $9 on Sonnet and $17 on Opus. The 16 device cases at 3 samples each cost about $5.70–5.90 on Opus and $2.90–3.40 on Sonnet (main's text–#25661), including the Haiku shell simulator; dry runs cost $0. Results record token costs for the agent and shell simulator. Codex proxy charges are outside that total; only its shell simulator is priced here, about $0.60–0.70 for the device cases.
 - A rate limit or overload (429, 529 or another 5xx) is retried with backoff for up to about 4 minutes. A sample that still fails gets an `error` in `results.jsonl`, is left out of every pass rate, and is listed in the summary; the tokens it spent still count toward the cost.
@@ -223,6 +225,25 @@ Passes per case, main's text → the request_secret guidance change stacked on t
 | ctrl-oauth (guard)           | 3/3 → 3/3                   | 6/6 → 6/6           | 6/6 → 6/6                             |
 | other guards and controls    | all pass → all pass         | all pass → all pass | all pass → all pass (prod-config 5/6) |
 
+## Tool profiles
+
+A Pi instance linked to an enabled inference server defaults to the lean profile (`packages/provider-core/src/server/mcpToolProfile.ts`), which leaves device, preview, HTML, pull request, attachment and queue tools out. Re-run this comparison before you add a tool to the lean list or make lean the default anywhere else:
+
+```sh
+pnpm mcp-tool-use --model openai-compatible:GLM-5.3-Flash --shell-model openai-compatible:GLM-5.3-Flash \
+  --base-url http://localhost:8888/v1 --effort high --samples 3 --concurrency 1 \
+  --tool-profile <full|lean> --case <ids> --out runs/<full|lean>
+```
+
+The comparison that set the default ran GLM-5.3-Flash (local, `--effort high`, 6 steps) with GLM as the shell, on the orchestration, projects, threads-vs-tasks, side-chats and secrets cases: 87 cases, 3 samples each per profile, on the same server. Device, visual-preview and pull-request cases were left out because lean drops those tools, as were the three secrets cases whose prior turns call device tools, and the cases Pi cannot run (`native-subagent` and harness-specific ones).
+
+| Profile         | Pass          | Prompt tokens per sample |
+| --------------- | ------------- | ------------------------ |
+| full (71 tools) | 212/261 (81%) | ~79k                     |
+| lean (32 tools) | 218/261 (84%) | ~48k                     |
+
+Lean did better on 14 cases and worse on 8, each by one or two samples. No lean sample called a tool lean leaves out. The largest drop, `provider-unavailable-cli-fallback` (2/3 to 0/3), ran out of steps in shell work in both profiles' failures. Lean still sends the visual and preview guidance in T3's orchestration section, whose tools it does not offer; the visual-preview cases do not cover that.
+
 ## Where T3's text lives
 
 - `packages/provider-core/src/server/runtimeInstructions.ts`
@@ -235,7 +256,7 @@ Passes per case, main's text → the request_secret guidance change stacked on t
 
 `templates/` holds one trimmed capture per harness. Refresh them when a harness changes its prompt or native tools:
 
-1. Capture one T3 Code turn through CLIProxyAPI, with T3's MCP server connected.
-2. From `evals/`, run `pnpm mcp-tool-use:trim-capture <claude|codex> <capture.json> mcp-tool-use/templates/<claude|codex>.json.gz`. It keeps only what `run.ts` reads, and removes user instructions, the user's own skills and agents, account ids, and home paths.
+1. Capture one T3 Code turn through CLIProxyAPI, with T3's MCP server connected. For Pi, record the chat completion request Pi sends to an OpenAI-compatible server with T3's bridge loaded (`pi -p` with `--no-skills` in an empty folder works), keep its system message, native tools and `reasoning_effort` under `request.provider_native`, and replace home paths and the working directory with `/home/user`.
+2. For Claude and Codex, from `evals/`, run `pnpm mcp-tool-use:trim-capture <claude|codex> <capture.json> mcp-tool-use/templates/<claude|codex>.json.gz`. It keeps only what `run.ts` reads, and removes user instructions, the user's own skills and agents, account ids, and home paths.
 3. Read the output for user data before you commit it: `zcat <file> | less`.
 4. Run the full eval on the old and new templates, and compare.

@@ -123,6 +123,7 @@ const settings = {
   enabled: true,
   binaryPath: "pi",
   launchArgs: "",
+  toolProfile: "auto",
   customModels: [],
 } as const;
 

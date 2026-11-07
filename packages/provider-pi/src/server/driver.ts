@@ -90,6 +90,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
     environment,
     enabled,
     config,
+    inferenceServerId,
   }) {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const fileSystem = yield* FileSystem.FileSystem;
@@ -128,6 +129,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
       environment,
       enabled,
       config,
+      inferenceServerId,
     }).pipe(
       Effect.mapError(
         (cause) =>

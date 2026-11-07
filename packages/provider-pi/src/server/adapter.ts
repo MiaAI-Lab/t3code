@@ -71,6 +71,7 @@ import {
   buildPiRpcLaunch,
   materializePiT3McpExtension,
   resolvePiLaunchArgs,
+  resolvePiToolProfile,
 } from "./mcpInjection.ts";
 import { PI_FILE_CHANGE_TOOLS } from "./mcpExtensionSource.ts";
 
@@ -192,6 +193,7 @@ export interface PiAdapterV2Options {
   readonly environment: NodeJS.ProcessEnv;
   /** Routes a linked inference server through T3's gateway; absent means unmanaged. */
   readonly gateway?: PiGatewaySource;
+  readonly linkedToInferenceServer?: boolean;
   readonly continuationRequests?: {
     readonly offer: (
       request: ProviderContinuationRequests.ProviderContinuationRequest,
@@ -485,6 +487,10 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         extensionPath,
         gateway,
         runtimeMode: input.runtimePolicy.runtimeMode,
+        toolProfile: resolvePiToolProfile(
+          options.settings.toolProfile,
+          options.linkedToInferenceServer === true,
+        ),
       });
       const scopedLaunch = yield* agentScope.wrap({
         command: options.settings.binaryPath || "pi",
@@ -3632,6 +3638,7 @@ export const PiAdapterV2Driver: ProviderAdapterDriver<PiSettings, PiAdapterV2Dri
         gateway: yield* makePiGatewaySource(input.instanceId, host.paths.providerStatusCacheDir),
         settings: { ...input.config, enabled: input.enabled },
         environment: yield* mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+        linkedToInferenceServer: input.inferenceServerId !== undefined,
         continuationRequests,
       });
     },

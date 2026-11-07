@@ -15,6 +15,7 @@ import {
   T3_GATEWAY_TOKEN_ENV,
   T3_GATEWAY_URL_ENV,
 } from "./gatewayExtensionSource.ts";
+import type { McpToolProfile } from "@t3tools/provider-core/server/mcpToolProfile";
 import {
   PI_T3_MCP_EXTENSION_FILENAME,
   PI_T3_MCP_EXTENSION_SOURCE,
@@ -22,7 +23,9 @@ import {
   T3_MCP_URL_ENV,
   T3_PI_RUNTIME_MODE_ENV,
   T3_PI_MCP_EXTENSION_PATH_ENV,
+  T3_PI_TOOL_PROFILE_ENV,
 } from "./mcpExtensionSource.ts";
+import type { PiSettings } from "../settings.ts";
 
 const RESERVED_PI_LAUNCH_ARGUMENTS = new Set([
   "--continue",
@@ -303,6 +306,16 @@ function piGatewayModels(server: ManagedInferenceServer) {
   });
 }
 
+/** An explicit profile wins; "auto" follows the instance's link to an enabled inference server. */
+export function resolvePiToolProfile(
+  setting: PiSettings["toolProfile"],
+  linkedToInferenceServer: boolean,
+): McpToolProfile {
+  if (setting !== "auto") return setting;
+  // GLM-5.3-Flash passed as many mcp-tool-use cases with lean as with full (evals/mcp-tool-use).
+  return linkedToInferenceServer ? "lean" : "full";
+}
+
 export function buildPiRpcLaunch(input: {
   readonly launchArgs: ReadonlyArray<string>;
   readonly environment: NodeJS.ProcessEnv;
@@ -320,6 +333,7 @@ export function buildPiRpcLaunch(input: {
   /** Loaded alone, even under --no-extensions, when T3's full extension is not. */
   readonly gatewayExtensionPath?: string | undefined;
   readonly runtimeMode?: "approval-required" | "auto-accept-edits" | "auto" | "full-access";
+  readonly toolProfile?: McpToolProfile;
 }): {
   readonly args: ReadonlyArray<string>;
   readonly env: NodeJS.ProcessEnv;
@@ -374,6 +388,7 @@ export function buildPiRpcLaunch(input: {
   delete environment[T3_MCP_URL_ENV];
   delete environment[T3_MCP_BEARER_ENV];
   delete environment[T3_PI_MCP_EXTENSION_PATH_ENV];
+  delete environment[T3_PI_TOOL_PROFILE_ENV];
 
   return {
     args,
@@ -387,6 +402,9 @@ export function buildPiRpcLaunch(input: {
             [T3_PI_RUNTIME_MODE_ENV]:
               input.runtimeMode === "auto" ? "approval-required" : input.runtimeMode,
           }
+        : {}),
+      ...(hasT3Mcp && input.toolProfile !== undefined
+        ? { [T3_PI_TOOL_PROFILE_ENV]: input.toolProfile }
         : {}),
       ...(hasT3Mcp && input.mcpSession !== undefined
         ? {

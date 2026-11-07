@@ -1679,7 +1679,13 @@ export const createCodexAdapterV2 = Effect.fn("CodexAdapterV2.createCodexAdapter
     config,
     inferenceServerId,
   }: ProviderAdapterDriverCreateInput<CodexSettings>,
-  hooks: Pick<CodexAdapterV2Options, "onUsageLimits" | "resolveRuntime" | "compatibility"> = {},
+  {
+    codexVersion,
+    ...hooks
+  }: Pick<CodexAdapterV2Options, "onUsageLimits" | "resolveRuntime" | "compatibility"> & {
+    /** The installed Codex version, which decides whether managed sessions get a model catalog. */
+    readonly codexVersion?: Effect.Effect<string | undefined>;
+  } = {},
 ) {
   const clientFactory = yield* CodexAppServerClientFactory;
   const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
@@ -1719,7 +1725,18 @@ export const createCodexAdapterV2 = Effect.fn("CodexAdapterV2.createCodexAdapter
     idAllocator,
     serverConfig,
     continuationRequests,
-    gateway: yield* makeCodexGatewaySource(instanceId),
+    gateway: yield* makeCodexGatewaySource(
+      instanceId,
+      codexVersion === undefined
+        ? undefined
+        : {
+            directory: (yield* Path.Path).join(
+              serverConfig.providerStatusCacheDir,
+              "codex-model-catalogs",
+            ),
+            codexVersion,
+          },
+    ),
     linkedToInferenceServer: inferenceServerId !== undefined,
     ...hooks,
   });

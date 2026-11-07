@@ -219,6 +219,9 @@ export const CodexDriver: ProviderDriver<
       {
         onUsageLimits: (update) => snapshot.applyUsageLimits(update),
         compatibility: installation.compatibility,
+        codexVersion: Effect.suspend(() => snapshot.getSnapshot).pipe(
+          Effect.map((provider) => provider.version ?? undefined),
+        ),
       },
     ).pipe(
       Effect.mapError(

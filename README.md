@@ -2,7 +2,7 @@
 
 T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
 
-Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, Google Antigravity, and fx. If they're set up on your computer, T3 Code can control them.
+Local models come first: run Pi, OpenCode, Claude Code, or Codex against Ollama, LM Studio, llama.cpp, vLLM, SGLang, or any OpenAI- or Anthropic-compatible server on your own hardware ([guide](./docs/user/local-models.md)). Your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, Google Antigravity, and fx keep working too. If they're set up on your computer, T3 Code can control them.
 
 ## "Wait, what are you selling me?"
 
@@ -13,8 +13,9 @@ We wanted something performant, remote-ready, and truly open. If we ever go the 
 ## Installation
 
 > [!WARNING]
-> T3 Code currently supports Codex, Claude, Cursor, Grok Build, OpenCode, Antigravity, and fx. Install and authenticate at least one provider before use:
+> T3 Code currently supports Pi, OpenCode, Codex, Claude, Cursor, Grok Build, Antigravity, and fx. Install and set up at least one provider before use:
 >
+> - Pi or OpenCode with a local model: see [Local models](./docs/user/local-models.md)
 > - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
 > - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
 > - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `agent login`

@@ -1764,7 +1764,14 @@ export function ThreadsSettingsPanel() {
           serverScoped
           settingKeys={["textGenerationModelSelection"]}
           {...searchableSetting("text-generation-model")}
-          description="Used for thread titles and other generated text on connected devices with this provider. Source control can override it."
+          description={
+            !settings.textGenerationModelSelectionExplicit &&
+            Object.values(settings.providerInstances).some(
+              (instance) => instance.inference === "local",
+            )
+              ? "Automatic: a ready local model writes thread titles and other generated text until you pick a model here. Source control can override it."
+              : "Used for thread titles and other generated text on connected devices with this provider. Source control can override it."
+          }
           resetAction={
             hasServerTargets && isTextGenerationModelDirty ? (
               <SettingResetButton

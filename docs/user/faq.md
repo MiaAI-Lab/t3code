@@ -65,7 +65,7 @@ Yes. Add another provider instance in Settings and give it its own keys and endp
 
 ## Does T3 Code support local models?
 
-No. T3 Code is a serious developer tool. Locally runnable models are not capable of meaningful engineering work.
+Yes, and this build puts them first. Point Pi, OpenCode, Claude, or Codex at Ollama, LM Studio, llama.cpp, vLLM, SGLang, or any OpenAI- or Anthropic-compatible server, then mark the instance as running local models. Local instances lead the model picker and write your thread titles and commit messages, and background writing never falls back to the cloud on its own. [Local models](./local-models.md)
 
 ## Does my code go to T3 servers?
 

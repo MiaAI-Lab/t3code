@@ -179,6 +179,7 @@ computer.
 
 | Provider    | Install and authenticate                                                                                                                                  |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Local model | Point Pi, OpenCode, Claude, or Codex at your inference server, then mark the instance as local. See [Local models](./local-models.md).                    |
 | Codex       | [Connect with ChatGPT](./providers-codex.md#connect-with-chatgpt), or install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`. |
 | Claude      | Install [Claude Code](https://claude.com/product/claude-code), then run `claude auth login`.                                                              |
 | Cursor      | Install [Cursor CLI](https://cursor.com/cli), then run `agent login`.                                                                                     |
@@ -216,7 +217,7 @@ instance can have its own environment variables, such as API keys or a custom
 base URL. Mark secret values as sensitive; after saving, T3 Code does not display
 their original values.
 
-For provider-specific setup and accounts, see [Codex](./providers-codex.md),
+For provider-specific setup and accounts, see [Local models](./local-models.md), [Codex](./providers-codex.md),
 [Claude](./providers-claude.md), [OpenCode](./providers-opencode.md),
 [Antigravity](./providers-antigravity.md), [Kiro](./providers-kiro.md),
 [Pi](./providers-pi.md), [Muse Code](./providers-muse.md), and [fx](./providers-fx.md).

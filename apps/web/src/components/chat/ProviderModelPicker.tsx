@@ -5,6 +5,7 @@ import {
   type ProviderDriverKind,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
+import { CpuIcon } from "lucide-react";
 import { createContext, memo, type ReactNode, useRef, useState } from "react";
 import { Badge } from "../ui/badge";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
@@ -146,6 +147,11 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     : triggerTitle;
   const showInstanceBadge =
     activeEntry !== null && shouldShowInstanceBadge(activeEntry, props.instanceEntries);
+  // Where a local model runs: its linked server's name, else just that it is local.
+  const localPlace =
+    activeEntry?.snapshot.inference === "local" && props.triggerLabel === undefined
+      ? (activeEntry.snapshot.inferenceServerId ?? "local")
+      : null;
 
   const setIsMenuOpen = (open: boolean) => {
     props.onOpenChange?.(open);
@@ -236,7 +242,13 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     .filter(Boolean)
     .join(" · ");
 
-  const triggerText = props.triggerLabel ?? multipleLabel ?? triggerTitle;
+  // The marker below names the server, so a "(server)" the model name ends with would repeat it.
+  const triggerText =
+    props.triggerLabel ??
+    multipleLabel ??
+    (localPlace !== null && triggerTitle.endsWith(` (${localPlace})`)
+      ? triggerTitle.slice(0, -` (${localPlace})`.length)
+      : triggerTitle);
   const triggerTextProps = {
     className: cn(
       "min-w-0 flex-1 overflow-hidden truncate",
@@ -308,6 +320,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             ref={triggerRef}
             aria-label={[
               props.triggerAriaLabel ?? props.triggerLabel ?? allModelNames ?? triggerLabel,
+              localPlace && !selectedEntries ? `runs on ${localPlace}` : undefined,
               props.triggerDetail,
             ]
               .filter(Boolean)
@@ -395,6 +408,15 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
               <TooltipPopup side="top">{triggerTooltipContent}</TooltipPopup>
             </Tooltip>
           )}
+          {localPlace && !selectedEntries ? (
+            <span
+              data-composer-control-label
+              className="flex max-w-20 shrink-0 items-center gap-1 truncate text-xs text-muted-foreground"
+            >
+              <CpuIcon aria-hidden className="size-3 shrink-0" />
+              <span className="truncate">{localPlace}</span>
+            </span>
+          ) : null}
           {props.triggerSuffix}
           {selectedModel?.isUnavailable && !selectedEntries && props.triggerLabel === undefined ? (
             <Badge variant="outline" size="sm">

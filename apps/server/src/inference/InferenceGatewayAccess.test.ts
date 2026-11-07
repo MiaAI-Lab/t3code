@@ -31,6 +31,9 @@ const ready: InferenceServerSnapshot = {
       servedContextWindow: 813056,
       trainedContextWindow: 1_000_000,
       reasoningEfforts: ["high", "low"],
+      capabilities: {
+        image: { supported: true, source: "checked", checkedAt: "2026-11-07T00:00:00Z" },
+      },
     },
   ],
   apiProtocols: ["chat-completions", "messages"],
@@ -86,7 +89,14 @@ it.effect(
       expect(managed.managed).toEqual({
         serverId: rtx,
         displayName: "rtx",
-        models: [{ id: "GLM-5.3-Flash", contextWindow: 813056, reasoningEfforts: ["high", "low"] }],
+        models: [
+          {
+            id: "GLM-5.3-Flash",
+            contextWindow: 813056,
+            reasoningEfforts: ["high", "low"],
+            images: true,
+          },
+        ],
       });
       expect(managed.background?.credential.token).toBe("bg");
 

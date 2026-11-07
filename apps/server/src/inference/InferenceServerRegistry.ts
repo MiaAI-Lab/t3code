@@ -27,6 +27,7 @@ import * as Stream from "effect/Stream";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
+import * as InferenceImageVerdicts from "./InferenceImageVerdicts.ts";
 import * as SecretResolverLayer from "../secrets/SecretResolver.ts";
 import { requireSettingsSecret } from "../secrets/settingsSecretValue.ts";
 import * as Settings from "../serverSettings.ts";
@@ -284,6 +285,7 @@ export const make = Effect.gen(function* () {
   const settingsService = yield* Settings.ServerSettingsService;
   const secrets = yield* SecretResolver.SecretResolver;
   const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
+  const imageVerdicts = yield* InferenceImageVerdicts.InferenceImageVerdicts;
   const stateRef = yield* Ref.make<ReadonlyArray<InferenceServerSnapshot>>([]);
   const cacheCounters = yield* Ref.make(new Map<InferenceServerId, PromptCacheCounters>());
   const changes = yield* Effect.acquireRelease(
@@ -420,7 +422,14 @@ export const make = Effect.gen(function* () {
         message: "The server's model list is not in the OpenAI format.",
       } as const;
     }
-    const { models, engine: ownerEngine } = list;
+    const { engine: ownerEngine } = list;
+    const checkedImages = yield* imageVerdicts.forAddress(endpoint.display);
+    const models = list.models.map((model) => {
+      const image = checkedImages(model.id);
+      return image === undefined
+        ? model
+        : { ...model, capabilities: { ...model.capabilities, image } };
+    });
 
     // Optional: a failure here never downgrades the model list above.
     const [health, metricsText, slots, protocols] = yield* Effect.all(

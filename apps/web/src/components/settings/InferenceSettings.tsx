@@ -2,6 +2,7 @@ import type {
   EnvironmentId,
   InferenceServerConfig,
   InferenceServerId,
+  InferenceServerModel,
   InferenceServerSnapshot,
   InferenceServerStatus,
 } from "@t3tools/contracts";
@@ -18,6 +19,7 @@ import {
   useEnvironmentSettings,
   useUpdateEnvironmentSettings,
 } from "../../hooks/useSettings";
+import { useNowMinute } from "../../hooks/useNowMinute";
 import type { EnvironmentPresentation } from "../../state/environments";
 import { inferenceUsageAtom } from "../../state/inference";
 import { serverEnvironment } from "../../state/server";
@@ -407,6 +409,12 @@ function InferenceServerRow({
                       <li key={model.id} className="wrap-anywhere">
                         <span className="font-mono text-foreground">{model.id}</span>
                         {context ? ` · ${context}` : null}
+                        <InferenceModelImages
+                          environmentId={environmentId}
+                          serverId={id}
+                          model={model}
+                          canCheck={!readOnly && current.status === "ready"}
+                        />
                       </li>
                     );
                   })}
@@ -436,6 +444,57 @@ function InferenceServerRow({
         ) : null
       }
     />
+  );
+}
+
+// A server can swap the weights behind a model id, so a day-old check is offered again.
+const IMAGE_CHECK_STALE_MS = 24 * 60 * 60_000;
+
+/** Whether a model reads images, and a way to check by sending it test images. */
+function InferenceModelImages({
+  environmentId,
+  serverId,
+  model,
+  canCheck,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly serverId: InferenceServerId;
+  readonly model: InferenceServerModel;
+  readonly canCheck: boolean;
+}) {
+  const check = useAtomCommand(serverEnvironment.checkInferenceModelImages, {
+    label: "check images",
+  });
+  const [checking, setChecking] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const nowMinute = useNowMinute();
+  const image = model.capabilities?.image;
+  const stale =
+    image?.checkedAt !== undefined &&
+    Date.parse(`${nowMinute}Z`) - Date.parse(image.checkedAt) > IMAGE_CHECK_STALE_MS;
+  const runCheck = async () => {
+    setChecking(true);
+    setNote(null);
+    const result = await check({ environmentId, input: { serverId, model: model.id } });
+    setChecking(false);
+    // A verdict arrives with the server's next snapshot; only an inconclusive check needs words.
+    if (result._tag === "Success" && result.value.outcome === "unknown") {
+      setNote(result.value.detail);
+    }
+  };
+  return (
+    <>
+      {image ? ` · ${image.supported ? "Reads images" : "Text only"}` : null}
+      {canCheck && (image === undefined || stale) ? (
+        <>
+          {" "}
+          <Button size="xs" variant="ghost" disabled={checking} onClick={() => void runCheck()}>
+            {checking ? "Checking images" : image ? "Check images again" : "Check images"}
+          </Button>
+        </>
+      ) : null}
+      {note ? <span className="block text-warning">{note}</span> : null}
+    </>
   );
 }
 

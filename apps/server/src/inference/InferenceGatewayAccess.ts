@@ -60,6 +60,7 @@ function resolveManagedServer(
         ...(model.reasoningEfforts === undefined
           ? {}
           : { reasoningEfforts: model.reasoningEfforts }),
+        ...(model.capabilities?.image?.supported === true ? { images: true } : {}),
       })),
     },
   };

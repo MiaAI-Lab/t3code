@@ -20,6 +20,7 @@ const server: InferenceGateway.ManagedInferenceServer = {
       contextWindow: 813056,
       maxOutputTokens: 32768,
       reasoningEfforts: ["high"],
+      images: true,
     },
     { id: "tiny" },
   ],
@@ -55,6 +56,8 @@ it("adds the managed provider to the user's config overlay without writing the t
           "GLM-5.3-Flash": {
             name: "GLM-5.3-Flash",
             reasoning: true,
+            attachment: true,
+            modalities: { input: ["text", "image"], output: ["text"] },
             limit: { context: 813056, output: 32768 },
           },
           tiny: { name: "tiny" },

@@ -24,6 +24,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.serverRefreshInferenceServers]: AuthOrchestrationReadScope,
   // It probes ports on the environment's machine, and only ends in a settings write.
   [WS_METHODS.serverDiscoverInferenceServers]: AuthSettingsWriteScope,
+  [WS_METHODS.serverCheckInferenceModelImages]: AuthSettingsWriteScope,
   [WS_METHODS.serverGetInferenceUsage]: AuthOrchestrationReadScope,
   [WS_METHODS.serverGetThreadInferenceRequest]: AuthOrchestrationReadScope,
   [WS_METHODS.serverGetThreadInferenceStop]: AuthOrchestrationReadScope,

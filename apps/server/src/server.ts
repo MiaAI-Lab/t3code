@@ -118,6 +118,8 @@ import * as InferenceGateway from "./inference/InferenceGateway.ts";
 import * as InferenceRouting from "./inference/InferenceRouting.ts";
 import * as InferenceGatewayAccess from "./inference/InferenceGatewayAccess.ts";
 import * as InferenceDiscovery from "./inference/InferenceDiscovery.ts";
+import * as InferenceImageChecks from "./inference/InferenceImageChecks.ts";
+import * as InferenceImageVerdicts from "./inference/InferenceImageVerdicts.ts";
 import * as InferenceStops from "./inference/InferenceStops.ts";
 import * as InferenceServerRegistry from "./inference/InferenceServerRegistry.ts";
 import * as InferenceRequests from "./persistence/InferenceRequests.ts";
@@ -693,6 +695,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       UsageLimitSources.layer,
       InferenceRequests.layer,
       InferenceStops.layer,
+      InferenceImageChecks.layer,
       InferenceGatewayAccess.layerRefreshLinkedInstances,
     ),
   ),
@@ -700,7 +703,10 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.provideMerge(ProviderInstanceRegistryHydration.layer),
   // Below provider hydration: Pi instances reach a linked server through the gateway from here.
   Layer.provideMerge(
-    InferenceGatewayAccess.layer.pipe(Layer.provideMerge(InferenceServerRegistry.layer)),
+    InferenceGatewayAccess.layer.pipe(
+      Layer.provideMerge(InferenceServerRegistry.layer),
+      Layer.provideMerge(InferenceImageVerdicts.layer),
+    ),
   ),
   Layer.provideMerge(InferenceDiscovery.layer),
   // Provider hydration builds the Claude runner, which reports agents to the same scanner the

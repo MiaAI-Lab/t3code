@@ -83,6 +83,13 @@ Code's gateway, which:
   The thread then shows why, with **Continue** and **Choose model**. To turn this off for one
   server, add `"watchdog": { "enabled": false }` to that server under `inferenceServers` in `settings.json`.
 
+T3 Code sends images to a linked model only after it has checked that the model reads them. On
+**Settings → Models & agents → Model servers**, press **Check images** next to a model: T3 Code
+asks it to name the colour of four test images, through the same queue as your threads, and marks
+the model **Reads images** or **Text only**. Pi and OpenCode instances then pass your image
+attachments to a model that reads them, from their next session. A day later the button returns as
+**Check images again**, in case the server now runs different weights under the same name.
+
 Linked Pi instances also offer Pi a lean set of T3 tools by default; see
 [T3 Tools](./providers-pi.md#t3-tools). They also compact long threads from the server's prompt
 cache; see [Compaction on Linked Servers](./providers-pi.md#compaction-on-linked-servers).

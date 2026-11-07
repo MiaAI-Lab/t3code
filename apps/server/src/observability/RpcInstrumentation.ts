@@ -39,6 +39,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.serverRefreshProviders]: "server",
   [WS_METHODS.serverRefreshInferenceServers]: "server",
   [WS_METHODS.serverDiscoverInferenceServers]: "server",
+  [WS_METHODS.serverCheckInferenceModelImages]: "server",
   [WS_METHODS.serverGetInferenceUsage]: "server",
   [WS_METHODS.serverGetThreadInferenceRequest]: "server",
   [WS_METHODS.serverGetThreadInferenceStop]: "server",

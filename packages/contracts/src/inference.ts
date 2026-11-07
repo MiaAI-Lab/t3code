@@ -13,6 +13,20 @@ export type InferenceServerId = typeof InferenceServerId.Type;
 export const InferenceServerStatus = Schema.Literals(["checking", "ready", "unreachable", "error"]);
 export type InferenceServerStatus = typeof InferenceServerStatus.Type;
 
+/** Whether a model reads images: as its engine reports, or as T3 checked by sending test images. */
+export const InferenceModelImageSupport = Schema.Struct({
+  supported: Schema.Boolean,
+  source: Schema.Literals(["reported", "checked"]),
+  /** When T3 checked; clients offer to check again after a day, as a server can swap weights. */
+  checkedAt: Schema.optional(Schema.String),
+});
+export type InferenceModelImageSupport = typeof InferenceModelImageSupport.Type;
+
+export const InferenceModelCapabilities = Schema.Struct({
+  image: Schema.optional(InferenceModelImageSupport),
+});
+export type InferenceModelCapabilities = typeof InferenceModelCapabilities.Type;
+
 export const InferenceServerModel = Schema.Struct({
   id: TrimmedNonEmptyString,
   /** The limit the server enforces for requests; only this drives budgets. */
@@ -21,6 +35,7 @@ export const InferenceServerModel = Schema.Struct({
   trainedContextWindow: Schema.optional(NonNegativeInt),
   maxOutputTokens: Schema.optional(NonNegativeInt),
   reasoningEfforts: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  capabilities: Schema.optional(InferenceModelCapabilities),
 });
 export type InferenceServerModel = typeof InferenceServerModel.Type;
 
@@ -190,3 +205,16 @@ export const InferenceThreadLastRequest = Schema.Struct({
   serverChanged: Schema.optional(Schema.Boolean),
 });
 export type InferenceThreadLastRequest = typeof InferenceThreadLastRequest.Type;
+
+export const InferenceImageCheckInput = Schema.Struct({
+  serverId: InferenceServerId,
+  model: TrimmedNonEmptyString,
+});
+export type InferenceImageCheckInput = typeof InferenceImageCheckInput.Type;
+
+/** `unknown` means the check could not finish, not that the model is text-only. */
+export const InferenceImageCheckResult = Schema.Struct({
+  outcome: Schema.Literals(["supported", "unsupported", "unknown"]),
+  detail: Schema.String,
+});
+export type InferenceImageCheckResult = typeof InferenceImageCheckResult.Type;

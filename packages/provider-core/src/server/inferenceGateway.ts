@@ -11,6 +11,8 @@ export interface ManagedInferenceModel {
   readonly contextWindow?: number;
   readonly maxOutputTokens?: number;
   readonly reasoningEfforts?: ReadonlyArray<string>;
+  /** The engine reports, or T3 checked, that the model reads images. */
+  readonly images?: boolean;
 }
 
 /** A linked server whose route for a harness's protocol T3's gateway can carry. */

@@ -1467,6 +1467,15 @@ export function createServerEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) => JSON.stringify([environmentId, input.window]),
       },
     }),
+    checkInferenceModelImages: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:check-inference-model-images",
+      tag: WS_METHODS.serverCheckInferenceModelImages,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.serverId, input.model]),
+      },
+    }),
     getThreadInferenceStop: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:thread-inference-stop",
       tag: WS_METHODS.serverGetThreadInferenceStop,

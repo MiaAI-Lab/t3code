@@ -1,6 +1,8 @@
 import {
   InferenceDiscoveryInput,
   InferenceDiscoveryResult,
+  InferenceImageCheckInput,
+  InferenceImageCheckResult,
   InferenceServerId,
   InferenceServerSnapshot,
   InferenceThreadLastRequest,
@@ -515,6 +517,7 @@ export const WS_METHODS = {
   serverGetInferenceUsage: "server.getInferenceUsage",
   serverGetThreadInferenceRequest: "server.getThreadInferenceRequest",
   serverGetThreadInferenceStop: "server.getThreadInferenceStop",
+  serverCheckInferenceModelImages: "server.checkInferenceModelImages",
   serverUpdateProvider: "server.updateProvider",
   serverUpdateServer: "server.updateServer",
   serverUpdateServerWithProgress: "server.updateServerWithProgress",
@@ -676,6 +679,12 @@ const WsServerRefreshInferenceServersRpc = Rpc.make(WS_METHODS.serverRefreshInfe
   payload: Schema.Struct({ id: Schema.optional(InferenceServerId) }),
   success: Schema.Struct({ inferenceServers: Schema.Array(InferenceServerSnapshot) }),
   error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+const WsServerCheckInferenceModelImagesRpc = Rpc.make(WS_METHODS.serverCheckInferenceModelImages, {
+  payload: InferenceImageCheckInput,
+  success: InferenceImageCheckResult,
+  error: Schema.Union([EnvironmentAuthorizationError]),
 });
 
 const WsServerDiscoverInferenceServersRpc = Rpc.make(WS_METHODS.serverDiscoverInferenceServers, {
@@ -2054,6 +2063,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetInferenceUsageRpc,
   WsServerGetThreadInferenceRequestRpc,
   WsServerGetThreadInferenceStopRpc,
+  WsServerCheckInferenceModelImagesRpc,
   WsServerUpdateProviderRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,

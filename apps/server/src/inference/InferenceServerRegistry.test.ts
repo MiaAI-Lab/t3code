@@ -17,6 +17,7 @@ import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http";
 
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as InferenceImageVerdicts from "./InferenceImageVerdicts.ts";
 import * as InferenceServerRegistry from "./InferenceServerRegistry.ts";
 
 // A string is a 200 text body, `{ statusCode }` an empty error, anything else a JSON body.
@@ -94,6 +95,7 @@ const probe = (
           ),
         invalidate: () => Effect.void,
       }),
+      InferenceImageVerdicts.layerMemory,
       layerFakeHttp(live, seen),
     ]),
     Effect.scoped,
@@ -462,6 +464,7 @@ describe("InferenceServerRegistry lifecycle", () => {
           shouldRunScopeWork: () => Effect.succeed(false),
         }),
         Layer.mock(SecretResolver.SecretResolver)({}),
+        InferenceImageVerdicts.layerMemory,
         layerFakeHttp({ [`${HOST}/v1/models`]: tensorFoldModels }, []),
       ]),
       Effect.scoped,
@@ -497,6 +500,7 @@ describe("InferenceServerRegistry lifecycle", () => {
           shouldRunScopeWork: () => Effect.succeed(false),
         }),
         Layer.mock(SecretResolver.SecretResolver)({}),
+        InferenceImageVerdicts.layerMemory,
         layerFakeHttp({ [`${HOST}/v1/models`]: tensorFoldModels }, []),
       ]),
       Effect.scoped,
@@ -527,6 +531,7 @@ describe("InferenceServerRegistry lifecycle", () => {
             shouldRunScopeWork: () => Effect.sync(() => mayRun),
           }),
           Layer.mock(SecretResolver.SecretResolver)({}),
+          InferenceImageVerdicts.layerMemory,
           layerFakeHttp({ [`${HOST}/v1/models`]: tensorFoldModels }, seen),
         ]),
         Effect.scoped,

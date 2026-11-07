@@ -1,5 +1,7 @@
 import { Toolbar } from "@base-ui/react/toolbar";
-import { type ProviderInstanceId } from "@t3tools/contracts";
+import { type EnvironmentId, type ProviderInstanceId } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
+import { providerInstanceInferenceLabel } from "@t3tools/client-runtime/state/provider-instance-display";
 import { memo, useLayoutEffect, useRef, useState } from "react";
 import { StarIcon } from "lucide-react";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
@@ -10,6 +12,7 @@ import {
   shouldShowInstanceBadge,
   type ProviderInstanceEntry,
 } from "../../providerInstances";
+import { serverEnvironment } from "../../state/server";
 
 function describeUnavailableInstance(entry: ProviderInstanceEntry): string {
   const label = entry.displayName;
@@ -34,6 +37,7 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
   onSelectInstance: (instanceId: ProviderInstanceId | "favorites") => void;
   onFocusSearch: () => void;
   instanceEntries: ReadonlyArray<ProviderInstanceEntry>;
+  environmentId?: EnvironmentId | null;
   showFavorites?: boolean;
   disabledInstanceIds?: ReadonlySet<ProviderInstanceId>;
   selectableUnavailableInstanceIds?: ReadonlySet<ProviderInstanceId>;
@@ -43,6 +47,11 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
     props.onSelectInstance(instanceId);
   };
   const showFavorites = props.showFavorites ?? true;
+  // Read here, not in the picker, so live load updates re-render only the sidebar.
+  const inferenceServers = useAtomValue(
+    serverEnvironment.configValueAtom(props.environmentId ?? null),
+    (config) => config?.inferenceServers,
+  );
   const [hoveredInstanceId, setHoveredInstanceId] = useState<ProviderInstanceId | null>(null);
   const sidebarContentRef = useRef<HTMLDivElement>(null);
   const [selectedIndicatorTop, setSelectedIndicatorTop] = useState<number | null>(null);
@@ -133,10 +142,11 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
             const isSelected = props.selectedInstanceId === entry.instanceId;
             const isHovered = hoveredInstanceId === entry.instanceId;
             const showInstanceBadge = shouldShowInstanceBadge(entry, props.instanceEntries);
-            const label =
-              entry.snapshot.inference === "local"
-                ? `${entry.displayName} · Local`
-                : entry.displayName;
+            const label = providerInstanceInferenceLabel(
+              entry.displayName,
+              entry.snapshot,
+              inferenceServers,
+            );
 
             const tooltip = isUnavailable
               ? describeUnavailableInstance(entry)

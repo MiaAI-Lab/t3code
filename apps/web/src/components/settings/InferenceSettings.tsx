@@ -40,6 +40,7 @@ import { Switch } from "../ui/switch";
 import { InferenceServerDialog } from "./InferenceServerDialog";
 import {
   describeInferenceModelContext,
+  describeInferencePromptCache,
   describeInferenceServerFallback,
   describeInferenceServerLoad,
   describeInferenceServerProbeFreshness,
@@ -249,6 +250,7 @@ function InferenceServerRow({
   const name = inferenceServerDisplayName(id, config);
   const current = config.enabled && snapshot?.enabled ? snapshot : undefined;
   const load = current ? describeInferenceServerLoad(current) : null;
+  const promptCache = current ? describeInferencePromptCache(current) : null;
   const details = [
     config.baseUrl,
     current?.engine,
@@ -287,6 +289,14 @@ function InferenceServerRow({
                 <InferenceServerRequestHealth environmentId={environmentId} serverId={id} />
               ) : null}
               {load ? <p>{load}</p> : null}
+              {promptCache ? <p>{promptCache.summary}</p> : null}
+              {promptCache?.warning ? (
+                <p className="text-warning">
+                  {promptCache.warning} {promptCache.advice}
+                </p>
+              ) : promptCache?.advice ? (
+                <p>{promptCache.advice}</p>
+              ) : null}
               {current.models.length > 0 ? (
                 <ul className="grid gap-0.5">
                   {current.models.map((model) => {

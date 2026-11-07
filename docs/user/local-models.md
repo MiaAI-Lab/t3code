@@ -22,9 +22,11 @@ it reports cached prompt tokens, and the last request through T3 Code that faile
 in the past hour. Cached tokens show as `unknown` until a request in the last day comes back with a
 cached count, so a server that never reports one cannot show its cache reuse anywhere.
 
-A server can name another as its **Fallback server**. When the first cannot take a request before
-it is sent, for example because it is down, T3 Code's gateway sends the request to the fallback if
-it serves the same model. A request that already started is never moved.
+A server can name another as its **Fallback server**, for when the first is down or unreachable.
+T3 Code's gateway sends a request to the fallback only when the first server's last check did not
+find it ready, or connecting to it failed, and only if the fallback serves the same model. It is
+not for overflow: while the first server is up, requests wait in its queue even when the fallback
+is idle. A request that already started is never moved.
 
 Then link a provider instance to a server with the **Inference server** setting on its card in
 **Settings → Providers**. A linked instance counts as local while its server is enabled, and the

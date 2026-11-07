@@ -100,9 +100,8 @@ it.effect("frees a queued slot on cancel and a held permit when its scope closes
   Effect.gen(function* () {
     const { admission, request, lastQueue } = yield* setup(1);
     const scope = yield* Scope.make();
-    expect(yield* admission.available(server)).toBe(true);
     yield* admission.admit({ serverId: server, purpose: "interactive" }).pipe(Scope.provide(scope));
-    expect(yield* admission.available(server)).toBe(false);
+    expect((yield* lastQueue)?.active).toHaveLength(1);
     const cancelled = yield* request("cancelled", "interactive");
     expect((yield* lastQueue)?.waiting).toHaveLength(1);
     yield* Fiber.interrupt(cancelled.fiber);

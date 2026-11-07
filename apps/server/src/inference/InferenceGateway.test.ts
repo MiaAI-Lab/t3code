@@ -603,7 +603,6 @@ const makeLifecycle = Effect.fnUntraced(function* (options: LifecycleOptions = {
     [rtx]: gate,
     [spark]: yield* Deferred.make<void>(),
   };
-  const available: Record<string, boolean> = { [rtx]: false, [spark]: true };
   const releases: Record<string, number> = {};
   const snapshots = { current: options.snapshots ?? [snapshotOf(rtx), snapshotOf(spark)] };
 
@@ -670,7 +669,6 @@ const makeLifecycle = Effect.fnUntraced(function* (options: LifecycleOptions = {
                 releases[ticket.serverId] = (releases[ticket.serverId] ?? 0) + 1;
               }),
             ).pipe(Effect.andThen(Deferred.await(gates[ticket.serverId]!))),
-          available: (serverId) => Effect.succeed(available[serverId] === true),
         }),
         Layer.mock(McpSessionRegistry.McpSessionRegistry)({
           resolveInference: () =>
@@ -723,7 +721,7 @@ const makeLifecycle = Effect.fnUntraced(function* (options: LifecycleOptions = {
     return record;
   });
 
-  return { start, exchanges, queued, gate, gates, available, snapshots, records, settledOnce };
+  return { start, exchanges, queued, gate, gates, snapshots, records, settledOnce };
 });
 
 const bodyText = (response: HttpServerResponse.HttpServerResponse) =>
@@ -902,7 +900,7 @@ it.effect("skips a primary the registry does not report ready", () =>
   }),
 );
 
-it.effect("spills to the fallback once the primary wait bound passes and it can admit", () =>
+it.effect("waits on a busy primary instead of overflowing to an idle fallback", () =>
   Effect.gen(function* () {
     const { start, exchanges, queued, gates, settledOnce } = yield* makeLifecycle({
       fallback: true,
@@ -910,27 +908,7 @@ it.effect("spills to the fallback once the primary wait bound passes and it can 
     yield* Deferred.succeed(gates[spark]!, undefined);
     const { serve } = yield* start();
     expect(yield* Queue.take(queued)).toBe(rtx);
-    yield* TestClock.adjust(InferenceRouting.PRIMARY_WAIT_MS - 1);
-    expect(yield* Queue.size(queued)).toBe(0);
-    yield* TestClock.adjust(1);
-    expect(yield* Queue.take(queued)).toBe(spark);
-    yield* serve(yield* Queue.take(exchanges), chatResponse());
-    expect(yield* settledOnce({ [rtx]: 1, [spark]: 1 })).toMatchObject({
-      serverId: spark,
-      fallbackFrom: rtx,
-    });
-  }),
-);
-
-it.effect("keeps waiting on the primary when the fallback cannot admit either", () =>
-  Effect.gen(function* () {
-    const { start, exchanges, queued, gates, available, settledOnce } = yield* makeLifecycle({
-      fallback: true,
-    });
-    available[spark] = false;
-    const { serve } = yield* start();
-    yield* Queue.take(queued);
-    yield* TestClock.adjust(InferenceRouting.PRIMARY_WAIT_MS);
+    yield* TestClock.adjust("1 minute");
     expect(yield* Queue.size(queued)).toBe(0);
     yield* Deferred.succeed(gates[rtx]!, undefined);
     const exchange = yield* Queue.take(exchanges);

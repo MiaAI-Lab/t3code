@@ -311,3 +311,23 @@ it.effect(
       expect(yield* registry.resolveInference(instance.token)).toBeUndefined();
     }),
 );
+
+it.effect("names a harness session's thread only within its instance, until released", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry(() => 1_000);
+    const opencode = ProviderInstanceId.make("opencode");
+    const other = ProviderInstanceId.make("opencode_work");
+    const thread = ThreadId.make("thread-1");
+    const scope = yield* Scope.make();
+    yield* registry
+      .attributeHarnessSessions(opencode, (sessionId) =>
+        sessionId === "ses_a" ? thread : undefined,
+      )
+      .pipe(Scope.provide(scope));
+    expect(yield* registry.harnessSessionThread(opencode, "ses_a")).toBe(thread);
+    expect(yield* registry.harnessSessionThread(opencode, "ses_b")).toBeUndefined();
+    expect(yield* registry.harnessSessionThread(other, "ses_a")).toBeUndefined();
+    yield* Scope.close(scope, Exit.void);
+    expect(yield* registry.harnessSessionThread(opencode, "ses_a")).toBeUndefined();
+  }),
+);

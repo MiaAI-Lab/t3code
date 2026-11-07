@@ -68,6 +68,12 @@ const DROPPED_RESPONSE_HEADERS = new Set([
   "set-cookie",
 ]);
 
+/**
+ * OpenCode 2 sends its session id on every model request. Read only on an instance credential,
+ * within that instance; the allowlist above already keeps it from the upstream.
+ */
+const HARNESS_SESSION_HEADER = "x-opencode-session-id";
+
 const errorResponse = (status: number, type: string, message: string) =>
   HttpServerResponse.jsonUnsafe(
     { error: { type, message } },
@@ -323,10 +329,19 @@ const make = Effect.gen(function* () {
       return errorResponse(405, "method_not_allowed", "Method not allowed.");
     }
 
-    const caller = yield* credentials.resolveInference(presentedToken(request));
-    if (caller === undefined) {
+    const presented = yield* credentials.resolveInference(presentedToken(request));
+    if (presented === undefined) {
       return errorResponse(401, "authentication_error", "Missing or unknown gateway credential.");
     }
+    const harnessSessionId = request.headers[HARNESS_SESSION_HEADER];
+    const sessionThread =
+      presented.threadId === undefined &&
+      presented.providerInstanceId !== undefined &&
+      harnessSessionId !== undefined
+        ? yield* credentials.harnessSessionThread(presented.providerInstanceId, harnessSessionId)
+        : undefined;
+    const caller =
+      sessionThread === undefined ? presented : { ...presented, threadId: sessionThread };
     if (caller.serverId !== serverId) {
       return errorResponse(403, "permission_error", "This credential is for another server.");
     }

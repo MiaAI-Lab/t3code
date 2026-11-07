@@ -1,4 +1,4 @@
-import type { InferenceApiProtocol, ProviderInstanceId } from "@t3tools/contracts";
+import type { InferenceApiProtocol, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Scope from "effect/Scope";
@@ -61,5 +61,13 @@ export class InferenceGatewayAccess extends Context.Service<
       instanceId: ProviderInstanceId,
       protocol: InferenceApiProtocol,
     ) => Effect.Effect<ManagedServerCredential | undefined, never, Scope.Scope>;
+    /**
+     * Lets the instance's shared harness name the thread behind a request: the gateway asks
+     * `threadOf` with the harness session id the request carries, until the scope closes.
+     */
+    readonly attributeSessions: (
+      instanceId: ProviderInstanceId,
+      threadOf: (harnessSessionId: string) => ThreadId | undefined,
+    ) => Effect.Effect<void, never, Scope.Scope>;
   }
 >()("@t3tools/provider-core/server/inferenceGateway/InferenceGatewayAccess") {}

@@ -55,6 +55,16 @@ export interface McpSessionRegistryShape {
     serverId: InferenceServerId,
     providerInstanceId?: ProviderInstanceId,
   ) => Effect.Effect<McpProviderSession.InferenceGatewayCredential, never, Scope.Scope>;
+  /** See `InferenceGatewayAccess.attributeSessions`. */
+  readonly attributeHarnessSessions: (
+    providerInstanceId: ProviderInstanceId,
+    threadOf: (harnessSessionId: string) => ThreadId | undefined,
+  ) => Effect.Effect<void, never, Scope.Scope>;
+  /** Only the instance's own harness answers, so a session id never crosses instances. */
+  readonly harnessSessionThread: (
+    providerInstanceId: ProviderInstanceId,
+    harnessSessionId: string,
+  ) => Effect.Effect<ThreadId | undefined>;
   readonly touch: (threadId: ThreadId) => Effect.Effect<void>;
   readonly revokeProviderSession: (providerSessionId: string) => Effect.Effect<void>;
   readonly revokeThread: (threadId: ThreadId) => Effect.Effect<void>;
@@ -267,6 +277,39 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     return { serverId, baseUrl: gatewayBaseUrl(serverId), token: minted.rawToken };
   });
 
+  const harnessSessions = new Map<
+    ProviderInstanceId,
+    Set<(harnessSessionId: string) => ThreadId | undefined>
+  >();
+  const attributeHarnessSessions: McpSessionRegistryShape["attributeHarnessSessions"] = (
+    providerInstanceId,
+    threadOf,
+  ) =>
+    Effect.acquireRelease(
+      Effect.sync(() => {
+        const held = harnessSessions.get(providerInstanceId) ?? new Set();
+        held.add(threadOf);
+        harnessSessions.set(providerInstanceId, held);
+      }),
+      () =>
+        Effect.sync(() => {
+          const held = harnessSessions.get(providerInstanceId);
+          held?.delete(threadOf);
+          if (held?.size === 0) harnessSessions.delete(providerInstanceId);
+        }),
+    );
+  const harnessSessionThread: McpSessionRegistryShape["harnessSessionThread"] = (
+    providerInstanceId,
+    harnessSessionId,
+  ) =>
+    Effect.sync(() => {
+      for (const threadOf of harnessSessions.get(providerInstanceId) ?? []) {
+        const threadId = threadOf(harnessSessionId);
+        if (threadId !== undefined) return threadId;
+      }
+      return undefined;
+    });
+
   const touch: McpSessionRegistryShape["touch"] = Effect.fn("McpSessionRegistry.touch")(
     function* (threadId) {
       const timestamp = yield* currentTimeMillis;
@@ -292,6 +335,8 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     resolve,
     resolveInference,
     issueBackgroundInference,
+    attributeHarnessSessions,
+    harnessSessionThread,
     touch,
     revokeProviderSession: Effect.fn("McpSessionRegistry.revokeProviderSession")(
       function* (providerSessionId) {

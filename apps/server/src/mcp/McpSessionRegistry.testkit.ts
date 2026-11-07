@@ -27,6 +27,8 @@ export const layer = Layer.succeed(
         baseUrl: `http://127.0.0.1/inference/${serverId}/v1`,
         token: `inference-test:${serverId}`,
       }),
+    attributeHarnessSessions: () => Effect.void,
+    harnessSessionThread: () => Effect.undefined,
     touch: () => Effect.void,
     revokeProviderSession: () => Effect.void,
     revokeThread: () => Effect.void,

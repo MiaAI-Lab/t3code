@@ -39,6 +39,7 @@ import * as Exit from "effect/Exit";
 import { TestClock } from "effect/testing";
 
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import * as InferenceGateway from "@t3tools/provider-core/server/inferenceGateway";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -2029,6 +2030,42 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
       assert.equal(again._tag, "ProviderAdapterProtocolError");
       assert.include(again.message, "not registered");
     }).pipe(Effect.scoped),
+  );
+
+  it.effect("names a session's thread for gateway attribution while the thread is loaded", () =>
+    Effect.gen(function* () {
+      let threadOf: ((sessionId: string) => ThreadId | undefined) | undefined;
+      const scope = yield* Scope.make();
+      const { runtime, thread } = yield* resumed([]).pipe(
+        Effect.provideService(
+          InferenceGateway.InferenceGatewayAccess,
+          InferenceGateway.InferenceGatewayAccess.of({
+            resolve: () => Effect.die("unused"),
+            managedServer: () => Effect.die("unused"),
+            backgroundCredential: () => Effect.die("unused"),
+            instanceCredential: () => Effect.die("unused"),
+            attributeSessions: (id, lookup) =>
+              Effect.acquireRelease(
+                Effect.sync(() => {
+                  assert.equal(id, instanceId);
+                  threadOf = lookup;
+                }),
+                () =>
+                  Effect.sync(() => {
+                    threadOf = undefined;
+                  }),
+              ),
+          }),
+        ),
+        Scope.provide(scope),
+      );
+      assert.equal(threadOf?.(SESSION), threadId);
+      assert.equal(threadOf?.("ses_other"), undefined);
+      yield* runtime.unloadThread!({ providerThread: thread });
+      assert.equal(threadOf?.(SESSION), undefined);
+      yield* Scope.close(scope, Exit.void);
+      assert.equal(threadOf, undefined);
+    }),
   );
 
   it.effect("stops the requests a session still waits on when a restarted T3 loads it", () =>

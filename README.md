@@ -10,6 +10,15 @@ default and the core of the app.
 
 ### Local first
 
+- **Use a local model**: one step from first run, Settings, the model picker, or the command
+  palette. T3 Code finds the model servers on your machine (Ollama, LM Studio, llama.cpp, vLLM,
+  SGLang, TensorFold), links an agent to the one you pick, and makes its model the default for new
+  threads. Running it again reuses what it set up.
+- **Repair instead of "Unreachable"**: when a server stops answering, **Find server** looks on its
+  machine for where it moved and moves it there, keeping its name, key and linked agents. A thread
+  whose agent depends on it says so above the message box.
+- **Never quietly cloud**: **Local models only** holds even before any local model is set up, and a
+  Codex instance linked to a server waits for it instead of falling back to your OpenAI login.
 - **Runs local models**: mark a provider instance as local. Local instances come first in the
   model picker and provider lists, and new threads default to them.
 - **Background writing stays local**: thread titles, commit messages, PR text, branch names and
@@ -64,6 +73,21 @@ Linked providers send their requests through T3 Code, which:
   function tools.
 - **Local harness evals**: `evals/mcp-tool-use` runs a local model through Pi, Codex and OpenCode
   side by side (`--harness`), recording tool-call validity, tokens and time to first token.
+
+### Simpler settings
+
+- **Nine places instead of 24 pages**: Models & agents, General, Appearance, Chat & input, Projects &
+  Git, Tools & automation, Connections & sharing, Advanced, About. Each holds its pages as tabs, so
+  old links and search still land on the right row.
+- **Models**: one page for the model new threads use, background writing, and the model servers on
+  your hardware. Settings open here.
+- **Less to read**: the project and machine pickers appear only when they choose something, rarely
+  used appearance options fold away, and settings use plain names (Background writing, Model
+  servers, Computers). Search still answers to the old names.
+
+![Use a local model: servers found on this machine, the model to use, and the agent to run it](pics/use-local-model.png)
+
+![Settings → Models & agents → Models: your hardware, the model for new threads, and background writing](pics/settings-models.png)
 
 ### Appearance
 

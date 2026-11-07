@@ -114,6 +114,7 @@ import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts"
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as InferenceServerRegistry from "./inference/InferenceServerRegistry.ts";
+import * as InferenceRequests from "./persistence/InferenceRequests.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
@@ -910,6 +911,7 @@ it.effect.each([
           streamChanges: Stream.never,
         }),
         Layer.mock(UsageLimitSources.UsageLimitSources)({ streamChanges: Stream.make([]) }),
+        Layer.mock(InferenceRequests.InferenceRequestLog)({}),
         Layer.mock(InferenceServerRegistry.InferenceServerRegistry)({
           current: Effect.succeed([]),
           streamChanges: Stream.make([]),
@@ -1188,6 +1190,7 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
         current: Effect.succeed([]),
         streamChanges: Stream.make([]),
       }),
+      Layer.mock(InferenceRequests.InferenceRequestLog)({}),
       Layer.mock(InferenceServerRegistry.InferenceServerRegistry)({
         current: Effect.succeed([]),
         streamChanges: Stream.concat(Stream.make([]), Stream.fromQueue(inferenceChanges)),
@@ -1406,6 +1409,7 @@ it.effect("a publish whose push fails still refreshes the new remote", () =>
       Layer.mock(ExternalLauncher.ExternalLauncher)({}),
       Layer.mock(ProviderRegistry.ProviderRegistry)({}),
       Layer.mock(UsageLimitSources.UsageLimitSources)({}),
+      Layer.mock(InferenceRequests.InferenceRequestLog)({}),
       Layer.mock(InferenceServerRegistry.InferenceServerRegistry)({}),
       Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({}),
       Layer.mock(DirectEndpoints.DirectEndpoints)({}),

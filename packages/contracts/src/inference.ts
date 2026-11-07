@@ -30,6 +30,15 @@ export const InferenceServerLoad = Schema.Struct({
 });
 export type InferenceServerLoad = typeof InferenceServerLoad.Type;
 
+/** Request protocols a server serves under its base URL, as T3's gateway forwards them. */
+export const InferenceApiProtocol = Schema.Literals([
+  "chat-completions",
+  "completions",
+  "responses",
+  "messages",
+]);
+export type InferenceApiProtocol = typeof InferenceApiProtocol.Type;
+
 /** Who asked: a user's turn, a scheduled task, or T3's own background writing. */
 export const InferenceRequestPurpose = Schema.Literals(["interactive", "scheduled", "background"]);
 export type InferenceRequestPurpose = typeof InferenceRequestPurpose.Type;
@@ -63,6 +72,8 @@ export const InferenceServerSnapshot = Schema.Struct({
   load: Schema.optional(InferenceServerLoad),
   /** Requests the server says it runs at once; reported only for engines where that meaning is verified. */
   maxConcurrentRequests: Schema.optional(NonNegativeInt),
+  /** Protocols the probe saw the server route; absent when none were confirmed. */
+  apiProtocols: Schema.optional(Schema.Array(InferenceApiProtocol)),
   gatewayQueue: Schema.optional(InferenceGatewayQueue),
 });
 export type InferenceServerSnapshot = typeof InferenceServerSnapshot.Type;

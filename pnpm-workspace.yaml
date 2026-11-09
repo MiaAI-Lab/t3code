@@ -78,7 +78,7 @@ catalog:
   react-dom: 19.3.0
   tailwindcss: 4.3.3
   tldts: 7.4.2
-  undici: 8.11.2
+  undici: 8.12.4
   vite: npm:@voidzero-dev/vite-plus-core@1.4.0
   vite-plus: 1.4.0
   ws: 8.22.0
@@ -98,6 +98,8 @@ catalog:
   unified: 11.0.5
 
 overrides:
+  # Stay within the SDK's supported range while fixing GHSA-rmxm-3fg6-px4f.
+  "@modelcontextprotocol/sdk>@hono/node-server": 2.1.6
   # Pin every patched package, including transitive dependencies, so lockfile-free
   # release installs cannot drift past the patch. Update these with patchedDependencies.
   react-native-image-viewing: 0.2.2
@@ -297,6 +299,7 @@ publicHoistPattern:
   - "@cursor/sdk-*"
 
 minimumReleaseAgeExclude:
+  - "@anthropic-ai/claude-agent-sdk@0.3.321"
   - "@effect/tsgo-darwin-arm64@0.67.1"
   - "@effect/tsgo-darwin-x64@0.67.1"
   - "@effect/tsgo-linux-arm64@0.67.1"
